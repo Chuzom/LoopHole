@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loophole"
+version = "0.1.0"
+description = "A swarm of agents that work toward a goal until an acceptance contract passes — and tells you what it couldn't prove."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "loophole contributors" }]
+keywords = ["agents", "multi-agent", "swarm", "llm", "automation", "orchestration"]
+dependencies = [
+    "click>=8.0",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.40"]
+openai = ["openai>=1.0"]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+loophole = "loophole.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["loophole*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

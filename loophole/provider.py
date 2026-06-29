@@ -1,0 +1,244 @@
+"""Provider abstraction.
+
+The interface puts tool-calling in the contract: providers must be able to take
+a list of tool schemas and (optionally) emit tool calls. Concrete providers:
+Ollama (default, local, free), Anthropic, OpenAI. They are imported lazily so
+the core package has zero hard dependencies beyond click.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import urllib.request
+import urllib.error
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+
+@dataclass
+class Msg:
+    role: str          # system|user|assistant|tool
+    content: str
+    name: Optional[str] = None          # tool name (for role=tool)
+    tool_call_id: Optional[str] = None
+
+    def to_openai(self) -> dict:
+        d: Dict[str, Any] = {"role": self.role, "content": self.content}
+        if self.name:
+            d["name"] = self.name
+        if self.tool_call_id:
+            d["tool_call_id"] = self.tool_call_id
+        return d
+
+
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: Dict[str, Any]
+
+
+@dataclass
+class Completion:
+    text: str
+    tool_calls: List[ToolCall] = field(default_factory=list)
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    model: str = ""
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+
+class Provider(ABC):
+    """Tool-calling LLM provider."""
+
+    name: str = "provider"
+    model: str = ""
+    # rough $/1k tokens (input, output); 0 for local/free models
+    price_in: float = 0.0
+    price_out: float = 0.0
+
+    @abstractmethod
+    def complete(self, msgs: List[Msg], tools: Optional[List[dict]] = None,
+                 max_tokens: int = 4096, temperature: float = 0.2) -> Completion:
+        ...
+
+    def cost(self, c: Completion) -> float:
+        return (c.prompt_tokens / 1000.0) * self.price_in + \
+               (c.completion_tokens / 1000.0) * self.price_out
+
+
+class ProviderError(RuntimeError):
+    pass
+
+
+# --------------------------------------------------------------------------- #
+# Ollama (default)                                                            #
+# --------------------------------------------------------------------------- #
+class OllamaProvider(Provider):
+    name = "ollama"
+    price_in = 0.0
+    price_out = 0.0
+
+    def __init__(self, model: str = "llama3", base_url: Optional[str] = None):
+        self.model = model
+        self.base_url = (base_url or os.environ.get("OLLAMA_BASE_URL")
+                         or "http://localhost:11434").rstrip("/")
+
+    def complete(self, msgs: List[Msg], tools: Optional[List[dict]] = None,
+                 max_tokens: int = 4096, temperature: float = 0.2) -> Completion:
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": [m.to_openai() for m in msgs],
+            "stream": False,
+            "options": {"temperature": temperature, "num_predict": max_tokens},
+        }
+        if tools:
+            payload["tools"] = tools
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(
+            self.base_url + "/api/chat", data=data,
+            headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                body = json.loads(resp.read().decode())
+        except urllib.error.URLError as e:
+            raise ProviderError(
+                "Ollama request failed ({}). Is `ollama serve` running at {}?"
+                .format(e, self.base_url))
+        message = body.get("message", {})
+        tool_calls: List[ToolCall] = []
+        for i, tc in enumerate(message.get("tool_calls", []) or []):
+            fn = tc.get("function", {})
+            args = fn.get("arguments", {})
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except json.JSONDecodeError:
+                    args = {}
+            tool_calls.append(ToolCall(
+                id=tc.get("id", "call_{}".format(i)),
+                name=fn.get("name", ""), arguments=args))
+        return Completion(
+            text=message.get("content", "") or "",
+            tool_calls=tool_calls,
+            prompt_tokens=body.get("prompt_eval_count", 0),
+            completion_tokens=body.get("eval_count", 0),
+            model=self.model,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Anthropic                                                                   #
+# --------------------------------------------------------------------------- #
+class AnthropicProvider(Provider):
+    name = "anthropic"
+    # Sonnet-class default pricing per 1k tokens
+    price_in = 0.003
+    price_out = 0.015
+
+    def __init__(self, model: str = "claude-sonnet-4-6", api_key: Optional[str] = None):
+        try:
+            import anthropic  # noqa: F401
+        except ImportError as e:
+            raise ProviderError("anthropic not installed: pip install 'loophole[anthropic]'") from e
+        import anthropic
+        self.model = model
+        self._client = anthropic.Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
+
+    def complete(self, msgs: List[Msg], tools: Optional[List[dict]] = None,
+                 max_tokens: int = 4096, temperature: float = 0.2) -> Completion:
+        system = "\n\n".join(m.content for m in msgs if m.role == "system")
+        conv = []
+        for m in msgs:
+            if m.role == "system":
+                continue
+            role = "assistant" if m.role == "assistant" else "user"
+            conv.append({"role": role, "content": m.content})
+        kwargs: Dict[str, Any] = dict(model=self.model, max_tokens=max_tokens,
+                                      temperature=temperature, messages=conv)
+        if system:
+            kwargs["system"] = system
+        if tools:
+            kwargs["tools"] = [_to_anthropic_tool(t) for t in tools]
+        resp = self._client.messages.create(**kwargs)
+        text_parts, tool_calls = [], []
+        for block in resp.content:
+            if block.type == "text":
+                text_parts.append(block.text)
+            elif block.type == "tool_use":
+                tool_calls.append(ToolCall(id=block.id, name=block.name,
+                                           arguments=dict(block.input)))
+        return Completion(
+            text="".join(text_parts), tool_calls=tool_calls,
+            prompt_tokens=resp.usage.input_tokens,
+            completion_tokens=resp.usage.output_tokens, model=self.model)
+
+
+def _to_anthropic_tool(t: dict) -> dict:
+    fn = t.get("function", t)
+    return {"name": fn["name"], "description": fn.get("description", ""),
+            "input_schema": fn.get("parameters", {"type": "object", "properties": {}})}
+
+
+# --------------------------------------------------------------------------- #
+# OpenAI                                                                      #
+# --------------------------------------------------------------------------- #
+class OpenAIProvider(Provider):
+    name = "openai"
+    price_in = 0.005
+    price_out = 0.015
+
+    def __init__(self, model: str = "gpt-4o", api_key: Optional[str] = None):
+        try:
+            import openai  # noqa: F401
+        except ImportError as e:
+            raise ProviderError("openai not installed: pip install 'loophole[openai]'") from e
+        import openai
+        self.model = model
+        self._client = openai.OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
+
+    def complete(self, msgs: List[Msg], tools: Optional[List[dict]] = None,
+                 max_tokens: int = 4096, temperature: float = 0.2) -> Completion:
+        kwargs: Dict[str, Any] = dict(
+            model=self.model, max_tokens=max_tokens, temperature=temperature,
+            messages=[m.to_openai() for m in msgs])
+        if tools:
+            kwargs["tools"] = tools
+        resp = self._client.chat.completions.create(**kwargs)
+        choice = resp.choices[0].message
+        tool_calls = []
+        for tc in (choice.tool_calls or []):
+            try:
+                args = json.loads(tc.function.arguments)
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args))
+        u = resp.usage
+        return Completion(
+            text=choice.content or "", tool_calls=tool_calls,
+            prompt_tokens=u.prompt_tokens if u else 0,
+            completion_tokens=u.completion_tokens if u else 0, model=self.model)
+
+
+# --------------------------------------------------------------------------- #
+# Factory                                                                     #
+# --------------------------------------------------------------------------- #
+def make_provider(spec: str) -> Provider:
+    """spec is 'provider' or 'provider:model', e.g. 'ollama:llama3', 'anthropic:claude-sonnet-4-6'."""
+    if ":" in spec:
+        name, model = spec.split(":", 1)
+    else:
+        name, model = spec, ""
+    name = name.lower()
+    if name == "ollama":
+        return OllamaProvider(model=model or "llama3")
+    if name == "anthropic":
+        return AnthropicProvider(model=model or "claude-sonnet-4-6")
+    if name == "openai":
+        return OpenAIProvider(model=model or "gpt-4o")
+    raise ProviderError("unknown provider: {}".format(name))
