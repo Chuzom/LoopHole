@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -39,6 +40,9 @@ class Integration:
         os.makedirs(self.workspace, exist_ok=True)
         self.is_git = self._ensure_git()
         self._wt_root = os.path.join(self.workspace, ".loophole_worktrees")
+        # git index/refs are NOT safe under concurrent mutation (council critique E):
+        # serialize all repo-metadata operations while executors run in parallel.
+        self.git_lock = threading.RLock()
 
     def _ensure_git(self) -> bool:
         if os.path.isdir(os.path.join(self.workspace, ".git")):

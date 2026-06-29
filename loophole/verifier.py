@@ -14,13 +14,17 @@ clean directory).
 from __future__ import annotations
 
 import fnmatch
+import json
 import os
 import re
 import subprocess
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from .contract import GoalContract, Verifier, VerifierKind
+
+if TYPE_CHECKING:
+    from .provider import Provider
 
 
 @dataclass
@@ -106,6 +110,72 @@ def run_command_verifier(v: Verifier, cwd: str, timeout: int = 600) -> VerifierR
                    re.findall(r"^E\s+(.*)$", output, re.M)[:5] or ["exit {}".format(rc)]
     return VerifierResult(name=name, passed=(rc == 0), metrics=metrics,
                           failures=failures, output=output[-4000:])
+
+
+_SOFT_SYSTEM = """You are a strict acceptance reviewer. You are given a rubric and
+a snapshot of a candidate's files. Decide whether the candidate SATISFIES the rubric.
+You can only VETO (reject); a hard automated check has already passed.
+Default to NO veto unless the rubric is clearly violated.
+Return ONLY JSON: {"satisfied": true|false, "reasons": ["..."]}."""
+
+
+def _snapshot(cand_dir: str, max_files: int = 25, max_bytes: int = 20000) -> str:
+    """A compact text snapshot of the candidate workspace for the soft judge."""
+    parts: List[str] = []
+    budget = max_bytes
+    for dirpath, dirs, files in os.walk(cand_dir):
+        dirs[:] = [d for d in dirs if d not in (".git", "__pycache__", ".loophole_worktrees")]
+        for f in sorted(files):
+            if len(parts) >= max_files or budget <= 0:
+                break
+            rel = os.path.relpath(os.path.join(dirpath, f), cand_dir)
+            content = _read(os.path.join(dirpath, f)) or b""
+            try:
+                text = content.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            chunk = text[: min(2000, budget)]
+            budget -= len(chunk)
+            parts.append("--- {} ---\n{}".format(rel, chunk))
+    return "\n\n".join(parts) or "(no readable files)"
+
+
+def evaluate_soft_verifier(v: Verifier, cand_dir: str,
+                           judge: "Optional[Provider]") -> VerifierResult:
+    """Evaluate a soft (rubric) verifier via an LLM. May only veto (GAP 2 fix).
+
+    With no judge available, abstains (passed=True) and says so — a soft verifier
+    must never block on infrastructure absence.
+    """
+    name = "soft:" + (v.rubric or "")[:48]
+    if judge is None:
+        return VerifierResult(name=name, passed=True,
+                              output="no soft judge configured; abstaining")
+    from .provider import Msg  # local import to avoid cycle
+    user = "RUBRIC:\n{}\n\nCANDIDATE FILES:\n{}".format(v.rubric, _snapshot(cand_dir))
+    try:
+        comp = judge.complete([Msg("system", _SOFT_SYSTEM), Msg("user", user)],
+                              temperature=0.1)
+    except Exception as e:  # never let a soft check crash the run
+        return VerifierResult(name=name, passed=True,
+                              output="soft judge error, abstaining: {}".format(e))
+    d = _parse_json_obj(comp.text)
+    satisfied = bool(d.get("satisfied", True))   # fail-open: abstain on parse miss
+    reasons = [str(x) for x in d.get("reasons", [])]
+    return VerifierResult(name=name, passed=satisfied,
+                          failures=([] if satisfied else (reasons or ["soft rubric not satisfied"])),
+                          output=comp.text[:2000])
+
+
+def _parse_json_obj(text: str) -> dict:
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.M).strip()
+    s, e = text.find("{"), text.rfind("}")
+    if s == -1 or e == -1:
+        return {}
+    try:
+        return json.loads(text[s:e + 1])
+    except json.JSONDecodeError:
+        return {}
 
 
 def check_boundary(contract: GoalContract, base_dir: str, candidate_dir: str) -> List[str]:

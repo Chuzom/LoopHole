@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import shutil
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -33,7 +34,8 @@ from .provider import Provider
 from .scheduler import PlannedTask, ready_tasks, admit_parallel
 from .state import Store, Task
 from .verifier import (VerifyVerdict, VerifierResult, run_command_verifier,
-                       check_boundary, check_test_count, parse_pytest)
+                       check_boundary, check_test_count, parse_pytest,
+                       evaluate_soft_verifier)
 
 
 @dataclass
@@ -92,8 +94,17 @@ def _baseline_test_total(contract: GoalContract, integ: Integration) -> Optional
 
 
 def verify_candidate(contract: GoalContract, integ: Integration,
-                     baseline_total: Optional[float]) -> VerifyVerdict:
-    """Verify from a FRESH checkout of the integration HEAD (council fix B)."""
+                     baseline_total: Optional[float],
+                     base_commit: Optional[str] = None,
+                     soft_judge: Optional[Provider] = None) -> VerifyVerdict:
+    """Verify from a FRESH checkout of the integration HEAD (council fix B).
+
+    base_commit: the goal's ORIGINAL start commit. The protected-path boundary
+    compares the candidate against THIS, not against current HEAD — otherwise
+    tampering already merged into HEAD would be invisible (GAP 1 fix).
+    soft_judge: provider used to evaluate soft (rubric) verifiers, which may only
+    VETO a hard pass (GAP 2 fix).
+    """
     cand = tempfile.mkdtemp(prefix="loophole_cand_")
     base = tempfile.mkdtemp(prefix="loophole_basechk_")
     try:
@@ -109,17 +120,20 @@ def verify_candidate(contract: GoalContract, integ: Integration,
 
         violations: List[str] = []
         if contract.all_protected_paths:
-            # base = the goal's start commit
-            start = integ.head()  # best-effort; start tracked by caller in practice
+            # GAP 1 fix: compare against the goal's ORIGINAL start commit, not HEAD.
+            start = base_commit or integ.head()
             integ.fresh_checkout(base, start)
             violations += check_boundary(contract, base, cand)
         violations += check_test_count(contract, all_metrics, baseline_total)
 
-        # soft verifiers may only VETO a hard pass
+        # GAP 2 fix: soft verifiers may only VETO when the hard verifiers passed.
         soft_veto = False
-        for v in contract.soft_verifiers:
-            # (LLM rubric evaluation is delegated; treated as non-vetoing here unless wired)
-            pass
+        if contract.soft_verifiers and hard_pass and not violations:
+            for v in contract.soft_verifiers:
+                sr = evaluate_soft_verifier(v, cand, soft_judge)
+                results.append(sr)
+                if not sr.passed:
+                    soft_veto = True
 
         passed = bool(contract.hard_verifiers) and hard_pass and not violations and not soft_veto
         failures: List[str] = []
@@ -128,7 +142,8 @@ def verify_candidate(contract: GoalContract, integ: Integration,
         return VerifyVerdict(passed=passed, results=results,
                              boundary_violations=violations, failures=failures)
     finally:
-        pass
+        shutil.rmtree(cand, ignore_errors=True)
+        shutil.rmtree(base, ignore_errors=True)
 
 
 def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
@@ -138,8 +153,12 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
     goal_row = store.get_goal(goal_id)
     workspace = goal_row["workspace"]
     integ = Integration(workspace)
-    if integ.head():
-        store.set_goal_base_commit(goal_id, integ.head())
+    # Capture the ORIGINAL start commit once; resume reuses the stored value so the
+    # boundary baseline never drifts to a tampered HEAD (GAP 1).
+    base_commit: Optional[str] = goal_row["base_commit"]
+    if base_commit is None and integ.head():
+        base_commit = integ.head()
+        store.set_goal_base_commit(goal_id, base_commit)
 
     # Pre-flight: verifier adversary review (fix F)
     bypasses: List[str] = []
@@ -218,7 +237,9 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
             _run_batch(store, integ, roles, budget, cfg, goal_id, batch, say)
 
         # ---- verify -------------------------------------------------------
-        verdict = verify_candidate(contract, integ, baseline_total)
+        verdict = verify_candidate(contract, integ, baseline_total,
+                                   base_commit=base_commit,
+                                   soft_judge=roles.critic)
         store.log("verify_run", goal_id=goal_id,
                   payload={"passed": verdict.passed, "score": verdict.metric_score,
                            "violations": verdict.boundary_violations})
@@ -272,8 +293,12 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
     def work(task: Task) -> None:
         store.set_task_status(task.id, "running", goal_id)
         attempts = store.incr_attempts(task.id)
-        # base = integration HEAD containing dep closure (deps already merged)
-        wt = integ.make_worktree(_safe(task.id), base_commit=integ.head())
+        wid = _safe(task.id)
+        # Cut the worktree from current HEAD under the git lock. Because ready_tasks
+        # only admits tasks whose deps are all 'done' (merged), HEAD already contains
+        # the task's full dependency closure (GAP 3). git metadata ops are serialized.
+        with integ.git_lock:
+            wt = integ.make_worktree(wid, base_commit=integ.head())
         try:
             res: ExecResult = execute_task(roles.executor, task, wt,
                                            max_steps=cfg.exec_max_steps,
@@ -284,13 +309,14 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
             if not res.ok:
                 _fail_task(store, integ, task, goal_id, cfg, attempts, res.summary, say)
                 return
-            sha = integ.commit_worktree(_safe(task.id), "loophole task: " + task.description[:60])
-            if sha is None and integ.is_git:
-                # executor reported done but changed nothing — reject the false claim
-                _fail_task(store, integ, task, goal_id, cfg, attempts,
-                           "reported complete but made no file changes", say)
-                return
-            ok, detail = integ.merge_task(_safe(task.id))
+            with integ.git_lock:
+                sha = integ.commit_worktree(wid, "loophole task: " + task.description[:60])
+                if sha is None and integ.is_git:
+                    # executor reported done but changed nothing — reject false claim
+                    _fail_task(store, integ, task, goal_id, cfg, attempts,
+                               "reported complete but made no file changes", say)
+                    return
+                ok, detail = integ.merge_task(wid)
             if not ok:
                 _fail_task(store, integ, task, goal_id, cfg, attempts, detail, say)
                 return
@@ -299,7 +325,8 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
             store.log("task_done", goal_id=goal_id, task_id=task.id,
                       payload={"summary": res.summary, "commit": sha})
         finally:
-            integ.discard_worktree(_safe(task.id))
+            with integ.git_lock:
+                integ.discard_worktree(wid)
 
     # bounded thread pool = execution plane
     with concurrent.futures.ThreadPoolExecutor(max_workers=cfg.max_parallel) as pool:
