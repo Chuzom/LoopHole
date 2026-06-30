@@ -55,6 +55,29 @@ def test_run_shell_write_inside_root_works():
         assert os.path.exists(os.path.join(root, "note.txt"))
 
 
+@requires_sandbox
+def test_run_shell_confines_reads_by_default():
+    # SEC-2: the untrusted agent shell can't read host files outside the worktree.
+    with tempfile.TemporaryDirectory() as root:
+        outside = tempfile.mkdtemp()
+        secret = os.path.join(outside, "secret.txt")
+        with open(secret, "w") as f:
+            f.write("HOST-SECRET-MATERIAL")
+        try:
+            res = Toolbelt(root).run_shell("cat {}".format(secret))
+            assert "HOST-SECRET-MATERIAL" not in res.output   # confined by default
+            # explicit opt-out restores broad reads
+            res2 = Toolbelt(root, confine_reads=False).run_shell("cat {}".format(secret))
+            assert "HOST-SECRET-MATERIAL" in res2.output
+            # in-worktree work still functions under confinement
+            ok = Toolbelt(root).run_shell("echo hi > note.txt && cat note.txt")
+            assert ok.ok and "hi" in ok.output
+        finally:
+            if os.path.exists(secret):
+                os.remove(secret)
+            os.rmdir(outside)
+
+
 def test_run_shell_fail_closed_without_sandbox(monkeypatch):
     monkeypatch.setattr(sandbox, "mechanism", lambda: "")
     with tempfile.TemporaryDirectory() as root:
