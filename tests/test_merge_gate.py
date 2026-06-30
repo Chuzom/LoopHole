@@ -75,3 +75,54 @@ def test_gate_rejects_red_merge_and_rollback_restores_green():
     integ.reset_hard(green)
     assert verify_candidate(contract, integ, None, base_commit=green,
                             gate_only=True).passed
+
+
+def _commit(ws, subject, fname="f.txt", content="x"):
+    with open(os.path.join(ws, fname), "w") as f:
+        f.write(content)
+    subprocess.run(["git", "add", "-A"], cwd=ws)
+    subprocess.run(["git", "commit", "-q", "-m", subject], cwd=ws)
+
+
+# ---- ARCH-1: startup crash reconciliation -----------------------------------
+
+def test_reconcile_rolls_back_ungated_loophole_merge():
+    integ, ws = _repo_with("ok")
+    green = integ.head()
+    integ.mark_green(green)
+    # simulate a crash that left an ungated loophole merge above green
+    _commit(ws, "loophole task: add feature", "feat.txt", "1")
+    assert integ.head() != green
+    rolled = integ.reconcile_head()
+    assert rolled == green
+    assert integ.head() == green
+    assert not os.path.exists(os.path.join(ws, "feat.txt"))
+
+
+def test_reconcile_preserves_a_user_commit():
+    integ, ws = _repo_with("ok")
+    green = integ.head()
+    integ.mark_green(green)
+    # a human committed on top of green — must NEVER be rolled back
+    _commit(ws, "fix: my manual hotfix", "hotfix.txt", "1")
+    user_head = integ.head()
+    assert integ.reconcile_head() is None
+    assert integ.head() == user_head
+    assert os.path.exists(os.path.join(ws, "hotfix.txt"))
+
+
+def test_reconcile_noop_when_head_is_green():
+    integ, _ = _repo_with("ok")
+    integ.mark_green(integ.head())
+    assert integ.reconcile_head() is None
+
+
+def test_reconcile_refuses_when_user_commit_sits_between():
+    integ, ws = _repo_with("ok")
+    green = integ.head()
+    integ.mark_green(green)
+    _commit(ws, "loophole task: step 1", "a.txt", "1")
+    _commit(ws, "chore: user tweak", "b.txt", "1")   # user commit above a loophole one
+    head = integ.head()
+    assert integ.reconcile_head() is None   # mixed history -> hands off entirely
+    assert integ.head() == head

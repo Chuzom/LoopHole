@@ -205,6 +205,14 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
     # it; the starting commit is the floor.
     if integ.last_green() is None:
         integ.mark_green(base_commit)
+    # ARCH-1: recover from a crash that left an ungated merge above the last green
+    # commit — roll HEAD back so the run never resumes on a poisoned HEAD. Safe by
+    # construction: only loophole-authored commits above green are discarded.
+    rolled = integ.reconcile_head()
+    if rolled:
+        say("reconciled: rolled HEAD back to last verified-green {} "
+            "(discarded an ungated merge from a prior crash)".format(rolled[:8]))
+        store.log("merge_gate_reconcile", goal_id=goal_id, payload={"reset_to": rolled})
 
     # Pre-flight: verifier adversary review (fix F)
     bypasses: List[str] = []
