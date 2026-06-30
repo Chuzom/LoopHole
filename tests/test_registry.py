@@ -102,3 +102,65 @@ def test_cli_run_contract_unknown_name_errors_via_registry(reg):
     r = CliRunner().invoke(main, ["run", "--contract", "does-not-exist-anywhere"])
     assert r.exit_code != 0
     assert "unknown registry entry" in r.output or "registry list" in r.output
+
+
+# ---- remote index sources ---------------------------------------------------
+
+def _write(path, text):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def test_remote_index_resolves_via_file_url(reg):
+    import pathlib
+    d = tempfile.mkdtemp(prefix="loophole_idx_")
+    # a contract the index points at (relative URL, resolved against the index URL)
+    _write(os.path.join(d, "web.json"), GoalContract(goal="serve a web app", verifiers=[
+        Verifier(kind=VerifierKind.HARD, command="pytest -q")]).to_json())
+    # the index manifest: name -> relative URL, plus an inline contract
+    _write(os.path.join(d, "index.json"), json.dumps({"entries": {
+        "team-web": "web.json",
+        "team-inline": json.loads(GoalContract(goal="inline goal", verifiers=[
+            Verifier(kind=VerifierKind.HARD, command="true")]).to_json()),
+    }}))
+    index_url = pathlib.Path(os.path.join(d, "index.json")).as_uri()
+
+    registry.add_source(index_url)
+    assert index_url in registry.list_sources()
+    names = {e["name"]: e["source"] for e in registry.list_entries()}
+    assert names.get("team-web") == "remote" and names.get("team-inline") == "remote"
+    # resolve fetches the contract (relative URL joined to the index)
+    assert registry.get_contract("team-web").goal == "serve a web app"
+    assert registry.get_contract("team-inline").goal == "inline goal"   # inline entry
+    # run/init resolve it by name too
+    assert registry.load_ref("team-web").goal == "serve a web app"
+
+    assert registry.remove_source(index_url) is True
+    assert "team-web" not in {e["name"] for e in registry.list_entries()}
+
+
+def test_precedence_local_over_remote_over_bundled(reg):
+    import pathlib
+    d = tempfile.mkdtemp(prefix="loophole_idx2_")
+    _write(os.path.join(d, "r.json"), GoalContract(goal="remote python-lib", verifiers=[
+        Verifier(kind=VerifierKind.HARD, command="true")]).to_json())
+    _write(os.path.join(d, "index.json"),
+           json.dumps({"entries": {"python-lib": "r.json"}}))
+    registry.add_source(pathlib.Path(os.path.join(d, "index.json")).as_uri())
+    # remote overrides the bundled python-lib template
+    assert registry.get_contract("python-lib").goal == "remote python-lib"
+    # a local entry overrides the remote
+    registry.add("python-lib", _contract_file("local python-lib"))
+    assert registry.get_contract("python-lib").goal == "local python-lib"
+
+
+def test_cli_sources_commands(reg):
+    runner = CliRunner()
+    r = runner.invoke(main, ["registry", "sources"])
+    assert r.exit_code == 0 and "no remote sources" in r.output
+    r = runner.invoke(main, ["registry", "add-source", "https://example.test/index.json"])
+    assert r.exit_code == 0
+    r = runner.invoke(main, ["registry", "sources"])
+    assert "example.test" in r.output
+    r = runner.invoke(main, ["registry", "remove-source", "https://example.test/index.json"])
+    assert r.exit_code == 0
