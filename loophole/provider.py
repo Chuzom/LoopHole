@@ -272,9 +272,10 @@ class ChuzomProvider(Provider):
                  max_tokens: int = 4096, temperature: float = 0.2) -> Completion:
         tier, spec = self._pick(msgs)
         url = os.environ.get("CHUZOM_URL")
-        if url and not tools:                       # live Chuzom router (text rounds)
-            try:
-                return self._http(url, msgs, tier, max_tokens)
+        if url:                                     # route through the live Chuzom endpoint
+            try:                                    # (text AND tool-calling rounds)
+                return self._http(url, msgs, tier, max_tokens, tools=tools,
+                                  temperature=temperature)
             except Exception:
                 pass                                # fall back to local policy routing
         delegate = make_provider(spec)
@@ -283,16 +284,38 @@ class ChuzomProvider(Provider):
         c.model = "chuzom:{}->{}".format(tier, c.model or spec)
         return c
 
-    def _http(self, url: str, msgs: List[Msg], tier: str, max_tokens: int) -> Completion:
-        prompt = "\n\n".join("{}: {}".format(m.role, m.content) for m in msgs)
-        body = json.dumps({"prompt": prompt, "complexity": tier,
-                           "max_tokens": max_tokens}).encode()
-        req = urllib.request.Request(url, data=body,
+    def _http(self, url: str, msgs: List[Msg], tier: str, max_tokens: int,
+              tools: Optional[List[dict]] = None, temperature: Optional[float] = None) -> Completion:
+        # Tool rounds send messages+tools (endpoint's tool path); text rounds send a
+        # prompt (endpoint's full route_and_call path).
+        if tools:
+            payload: Dict[str, Any] = {"messages": [m.to_openai() for m in msgs],
+                                       "tools": tools, "task_type": "code"}
+        else:
+            payload = {"prompt": "\n\n".join("{}: {}".format(m.role, m.content) for m in msgs)}
+        payload["complexity"] = tier
+        payload["max_tokens"] = max_tokens
+        if temperature is not None:
+            payload["temperature"] = temperature
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(),
                                      headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=600) as r:
             data = json.loads(r.read().decode())
+        tool_calls: List[ToolCall] = []
+        for i, tc in enumerate(data.get("tool_calls") or []):
+            fn = tc.get("function", {}) or {}
+            args = fn.get("arguments", {})
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+            tool_calls.append(ToolCall(id=tc.get("id", "call_{}".format(i)),
+                                       name=fn.get("name", ""), arguments=args))
         return Completion(text=data.get("text") or data.get("result") or "",
-                          model="chuzom-http:" + tier)
+                          tool_calls=tool_calls, model="chuzom-http:" + tier,
+                          prompt_tokens=data.get("input_tokens", 0),
+                          completion_tokens=data.get("output_tokens", 0))
 
     def cost(self, c: Completion) -> float:
         return self._last.cost(c) if self._last else 0.0
