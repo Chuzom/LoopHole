@@ -324,8 +324,9 @@ def contract_show(path: str) -> None:
 @click.option("--watch/--no-watch", "watch_live", default=None,
               help="Live-render THE FORGE (the swarm view) during the run. "
                    "Default: ON in an interactive terminal, OFF when piped/CI.")
-@click.option("--planner-model", default="chuzom:simple",
-              help="provider:model for planning (default routes via Chuzom).")
+@click.option("--planner-model", default="chuzom:moderate",
+              help="provider:model for planning (default routes via Chuzom; moderate "
+                   "tier for reliable plans).")
 @click.option("--executor-model", default="chuzom:complex",
               help="provider:model for execution (default routes via Chuzom).")
 @click.option("--executor-command", default=None,
@@ -591,7 +592,7 @@ def ls(db: Optional[str]) -> None:
 @main.command()
 @click.argument("goal_id")
 @click.option("--executor-model", default="chuzom:complex")
-@click.option("--planner-model", default="chuzom:simple")
+@click.option("--planner-model", default="chuzom:moderate")
 @click.option("--db", default=None)
 def resume(goal_id: str, executor_model: str, planner_model: str, db: Optional[str]) -> None:
     """Resume a paused/failed goal (discards un-merged worktrees, re-runs pending)."""
