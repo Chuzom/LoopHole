@@ -12,3 +12,6 @@ venv/
 *.db-shm
 .loophole/
 .DS_Store
+
+# docs are local-only
+docs/

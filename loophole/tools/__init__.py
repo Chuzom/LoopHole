@@ -1,9 +1,16 @@
 """Executor toolbelt.
 
-Tools are sandboxed to a single root directory (the task's worktree). All paths
-are resolved and checked to stay within the root — no escaping via ``..`` or
-absolute paths. ``run_shell`` runs in a process group with a hard timeout so a
-cancelled task cannot orphan a child process (council critique E).
+File tools (``write_file``/``read_file``/``list_dir``) are confined to a single
+root directory: all paths are resolved and checked to stay within the root — no
+escaping via ``..`` or absolute paths.
+
+``run_shell`` runs RAW executor-LLM output, so ``cwd=root`` alone is not
+containment — it could otherwise write outside the worktree, reach the network,
+or read host secrets. S1: it runs under the OS sandbox (see ``loophole.sandbox``)
+confined to the root with network denied, with provider secrets scrubbed from the
+environment, in a process group with a hard timeout so a cancelled task cannot
+orphan a child process (council critique E). If no sandbox mechanism is available
+it FAILS CLOSED unless the operator passes ``allow_unsandboxed``.
 """
 
 from __future__ import annotations
@@ -13,6 +20,8 @@ import signal
 import subprocess
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
+
+from ..sandbox import SandboxPolicy, SandboxUnavailable, scrub_env, wrap
 
 
 @dataclass
@@ -25,9 +34,12 @@ class ToolResult:
 
 
 class Toolbelt:
-    def __init__(self, root: str, timeout: int = 120):
+    def __init__(self, root: str, timeout: int = 120, allow_unsandboxed: bool = False):
         self.root = os.path.realpath(root)
         self.timeout = timeout
+        # Fail-closed by default: if no OS sandbox is available, run_shell refuses
+        # rather than running unconfined. The operator may opt out explicitly.
+        self.allow_unsandboxed = allow_unsandboxed
 
     # ---- path safety -----------------------------------------------------
     def _resolve(self, path: str) -> str:
@@ -62,11 +74,19 @@ class Toolbelt:
         return ToolResult(True, "\n".join(entries) or "(empty)")
 
     def run_shell(self, command: str) -> ToolResult:
+        # S1: confine the command to the OS sandbox (writes within root, no
+        # network) and never hand it provider secrets. shell semantics are
+        # preserved INSIDE the jail by the wrapped `/bin/sh -c` invocation.
+        try:
+            argv = wrap(command, self.root,
+                        SandboxPolicy(allow_unsandboxed=self.allow_unsandboxed))
+        except SandboxUnavailable as e:
+            return ToolResult(False, "sandbox unavailable: {}".format(e))
         try:
             proc = subprocess.Popen(
-                command, shell=True, cwd=self.root,
+                argv, cwd=self.root,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                start_new_session=True, text=True)
+                start_new_session=True, text=True, env=scrub_env({}))
         except OSError as e:
             return ToolResult(False, "spawn failed: {}".format(e))
         try:

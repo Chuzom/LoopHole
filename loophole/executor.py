@@ -44,8 +44,9 @@ class ExecResult:
 
 
 def execute_task(provider: Provider, task: Task, worktree: str,
-                 max_steps: int = 12, shell_timeout: int = 120) -> ExecResult:
-    belt = Toolbelt(worktree, timeout=shell_timeout)
+                 max_steps: int = 12, shell_timeout: int = 120,
+                 allow_unsandboxed: bool = False) -> ExecResult:
+    belt = Toolbelt(worktree, timeout=shell_timeout, allow_unsandboxed=allow_unsandboxed)
     schemas = tool_schemas()
     user = "TASK: {}\n".format(task.description)
     if task.reads:

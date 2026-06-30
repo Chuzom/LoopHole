@@ -62,8 +62,19 @@ def critique_plan(provider: Provider, contract: GoalContract,
     comp = provider.complete([Msg("system", _CRITIC_SYSTEM), Msg("user", user)],
                              temperature=0.2)
     d = _json(comp.text)
+    approved = d.get("approved")
+    if not isinstance(approved, bool):
+        # Fail-closed: an unparseable / missing verdict does NOT approve the plan.
+        # A malformed critic response triggers a replan, not a free pass (mirrors
+        # the soft-judge S11 fix). The degenerate-plan circuit breaker bounds any
+        # loop if the critic stays broken.
+        return CritiqueResult(
+            approved=False,
+            issues=["plan critic verdict unparseable; rejecting to be safe"],
+            raw=comp.text,
+        )
     return CritiqueResult(
-        approved=bool(d.get("approved", True)),   # fail-open: never block on parser miss
+        approved=approved,
         issues=[str(x) for x in d.get("issues", [])],
         raw=comp.text,
     )

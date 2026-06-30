@@ -93,6 +93,19 @@ class Integration:
         _git(["worktree", "add", "-q", "-f", "-b", branch, path, base], self.workspace)
         return path
 
+    def stage_changes(self, task_id: str) -> List[str]:
+        """Stage all worktree changes and return the changed repo-relative paths.
+
+        Used to enforce the write allowlist BEFORE committing (S5), so an
+        out-of-bounds change never reaches a commit or the merge-train.
+        """
+        if not self.is_git:
+            return []
+        path = os.path.join(self._wt_root, task_id)
+        _git(["add", "-A"], path)
+        _, out = _git(["diff", "--cached", "--name-only"], path)
+        return [ln.strip() for ln in out.splitlines() if ln.strip()]
+
     def commit_worktree(self, task_id: str, message: str) -> Optional[str]:
         """Commit all changes in the task's worktree. Returns the commit sha."""
         if not self.is_git:
@@ -119,6 +132,37 @@ class Integration:
             _git(["merge", "--abort"], self.workspace, check=False)
             return False, "merge conflict: " + out
         return True, "merged"
+
+    def reset_hard(self, commit: str) -> None:
+        """Roll the integration HEAD back to ``commit`` (R3 merge-gate rollback).
+
+        Used to undo a merge that verified red, so a bad merge never persists in
+        HEAD where downstream worktrees would branch off it.
+        """
+        if not self.is_git:
+            return
+        _git(["reset", "--hard", "-q", commit], self.workspace, check=False)
+
+    _GREEN_REF = "refs/loophole/last_green"
+
+    def mark_green(self, commit: Optional[str]) -> None:
+        """Record ``commit`` as the latest verified-green integration HEAD (R3).
+
+        Durable across crashes (it's a git ref). A startup reconciliation can use
+        it to roll an ungated, crash-left HEAD back to the last green commit.
+        """
+        if not self.is_git or not commit:
+            return
+        _git(["update-ref", self._GREEN_REF, commit], self.workspace, check=False)
+
+    def last_green(self) -> Optional[str]:
+        """The last commit recorded green via ``mark_green``, or None."""
+        if not self.is_git:
+            return None
+        rc, out = _git(["rev-parse", "--verify", "-q", self._GREEN_REF + "^{commit}"],
+                       self.workspace, check=False)
+        out = (out or "").strip()
+        return out if rc == 0 and out else None
 
     def discard_worktree(self, task_id: str) -> None:
         if not self.is_git:

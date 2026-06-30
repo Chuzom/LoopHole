@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from .contract import GoalContract, Verifier, VerifierKind
+from .sandbox import SandboxPolicy, SandboxUnavailable, scrub_env, wrap
 
 if TYPE_CHECKING:
     from .provider import Provider
@@ -34,6 +35,11 @@ class VerifierResult:
     metrics: Dict[str, float] = field(default_factory=dict)
     failures: List[str] = field(default_factory=list)
     output: str = ""
+    # A soft verifier that could not render a verdict (no judge / error /
+    # unparseable). It does NOT veto (passed stays True so a hard pass isn't
+    # blocked) but the loop must escalate to a human before declaring done —
+    # never silently pass an unevaluated rubric.
+    abstained: bool = False
 
     def signature(self) -> str:
         """A normalized failure signature for stuckness detection."""
@@ -49,6 +55,9 @@ class VerifyVerdict:
     results: List[VerifierResult] = field(default_factory=list)
     boundary_violations: List[str] = field(default_factory=list)
     failures: List[str] = field(default_factory=list)
+    # Reasons a human must sign off before completion even though nothing failed
+    # (soft verifiers that abstained). Non-empty => do not auto-declare done.
+    needs_human: List[str] = field(default_factory=list)
 
     @property
     def metric_score(self) -> float:
@@ -88,27 +97,26 @@ def parse_pytest(output: str) -> Dict[str, float]:
     return metrics
 
 
-_SECRET_RE = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API)", re.I)
-
-
-def _scrub_env(extra: Dict[str, str]) -> Dict[str, str]:
-    """S2 fix: never hand provider API keys / secrets to verifier subprocesses.
-
-    Verifiers run agent-influenced code (pytest imports the candidate). Passing the
-    full environment lets any dependency exfiltrate ANTHROPIC_API_KEY, cloud creds,
-    etc. We drop anything that looks like a secret and keep the rest (PATH, HOME…).
-    """
-    safe = {k: val for k, val in os.environ.items() if not _SECRET_RE.search(k)}
-    safe.update(extra or {})
-    return safe
+# Back-compat alias: the canonical scrubber now lives in the security module
+# (sandbox.py) so run_shell and verifiers share one implementation (S1).
+_scrub_env = scrub_env
 
 
 def run_command_verifier(v: Verifier, cwd: str, timeout: int = 600) -> VerifierResult:
     name = "hard:" + (v.command or "")
+    # S1: run the (agent-influenced) verifier command under the OS sandbox.
+    # Network is denied unless the verifier explicitly opts in (e.g. it must
+    # `pip install`). Fail-closed: no sandbox mechanism => the check cannot pass.
     try:
-        proc = subprocess.run(v.command, shell=True, cwd=cwd, timeout=timeout,
+        argv = wrap(v.command or "", cwd,
+                    SandboxPolicy(allow_network=getattr(v, "allow_network", False)))
+    except SandboxUnavailable as e:
+        return VerifierResult(name=name, passed=False,
+                              failures=["sandbox unavailable"], output=str(e))
+    try:
+        proc = subprocess.run(argv, cwd=cwd, timeout=timeout,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              text=True, env=_scrub_env(v.environment))
+                              text=True, env=scrub_env(v.environment))
         output = proc.stdout or ""
         rc = proc.returncode
     except subprocess.TimeoutExpired as e:
@@ -159,23 +167,31 @@ def evaluate_soft_verifier(v: Verifier, cand_dir: str,
                            judge: "Optional[Provider]") -> VerifierResult:
     """Evaluate a soft (rubric) verifier via an LLM. May only veto (GAP 2 fix).
 
-    With no judge available, abstains (passed=True) and says so — a soft verifier
-    must never block on infrastructure absence.
+    Fail-closed-to-human: when the rubric cannot actually be evaluated (no judge,
+    judge error, or an unparseable verdict) the result ABSTAINS — it does not veto
+    a hard pass, but it sets ``abstained`` so the loop escalates to a human rather
+    than silently completing on an unchecked rubric. Only a clear, parsed verdict
+    grants or vetoes.
     """
     name = "soft:" + (v.rubric or "")[:48]
     if judge is None:
-        return VerifierResult(name=name, passed=True,
-                              output="no soft judge configured; abstaining")
+        return VerifierResult(name=name, passed=True, abstained=True,
+                              output="no soft judge configured; needs human sign-off")
     from .provider import Msg  # local import to avoid cycle
     user = "RUBRIC:\n{}\n\nCANDIDATE FILES:\n{}".format(v.rubric, _snapshot(cand_dir))
     try:
         comp = judge.complete([Msg("system", _SOFT_SYSTEM), Msg("user", user)],
                               temperature=0.1)
     except Exception as e:  # never let a soft check crash the run
-        return VerifierResult(name=name, passed=True,
+        return VerifierResult(name=name, passed=True, abstained=True,
                               output="soft judge error, abstaining: {}".format(e))
     d = _parse_json_obj(comp.text)
-    satisfied = bool(d.get("satisfied", True))   # fail-open: abstain on parse miss
+    if not isinstance(d.get("satisfied"), bool):
+        # No clear verdict parsed — abstain to a human instead of fail-open.
+        return VerifierResult(name=name, passed=True, abstained=True,
+                              output="soft judge verdict unparseable; needs human "
+                                     "sign-off: {}".format(comp.text[:400]))
+    satisfied = d["satisfied"]
     reasons = [str(x) for x in d.get("reasons", [])]
     return VerifierResult(name=name, passed=satisfied,
                           failures=([] if satisfied else (reasons or ["soft rubric not satisfied"])),
