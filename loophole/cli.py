@@ -60,11 +60,16 @@ def demo(slow: bool) -> None:
 @click.option("--template", "template", default=None,
               help="Scaffold from a bundled template instead of inspecting the repo.")
 @click.option("--list-templates", is_flag=True, help="List bundled templates and exit.")
-def init(repo: str, force: bool, template: Optional[str], list_templates: bool) -> None:
+@click.option("--goal", "goal", default=None,
+              help="Set the goal now (skips the TODO placeholder / interactive prompt).")
+@click.option("--ci", "ci", type=click.Choice(["github-actions", "gitlab"]), default=None,
+              help="Also write a CI acceptance-gate workflow for this provider.")
+def init(repo: str, force: bool, template: Optional[str], list_templates: bool,
+         goal: Optional[str], ci: Optional[str]) -> None:
     """Infer a starter contract (loophole.json) from the repo, or scaffold a template.
 
-    Inspects the filesystem only — no code execution, no model calls. Edit the
-    emitted 'goal' field, then run with --contract.
+    Inspects the filesystem only — no code execution, no model calls. Pass --goal to
+    fill it in immediately (or you'll be prompted in an interactive terminal).
     """
     if list_templates:
         for name in _list_templates():
@@ -88,9 +93,105 @@ def init(repo: str, force: bool, template: Optional[str], list_templates: bool) 
         write_starter(contract, out)
         for n in notes:
             _say(n)
+    # Fill in the goal: explicit --goal, else prompt in an interactive terminal,
+    # else leave the TODO placeholder (run refuses to launch on a TODO goal).
+    resolved_goal = goal
+    if not resolved_goal and sys.stdin.isatty():
+        entered = click.prompt("Describe the goal in one sentence (what 'done' means)",
+                               default="", show_default=False)
+        resolved_goal = entered.strip() or None
+    if resolved_goal:
+        with open(out, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["goal"] = resolved_goal
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=2) + "\n")
+    if ci:
+        ci_path = _write_ci_workflow(repo, ci)
+        _say("wrote CI acceptance gate: {}".format(ci_path))
     click.echo("wrote " + click.style(out, fg="green"))
-    click.echo("edit the \"goal\" field, then: "
-               + click.style("loophole run --contract loophole.json", fg="cyan"))
+    if resolved_goal:
+        click.echo("run it: " + click.style("loophole run --contract loophole.json", fg="cyan"))
+    else:
+        click.echo("edit the \"goal\" field, then: "
+                   + click.style("loophole run --contract loophole.json", fg="cyan"))
+
+
+_CI_WORKFLOWS = {
+    "github-actions": (".github/workflows/loophole-gate.yml", """\
+name: loophole-gate
+on: [pull_request]
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {{ python-version: "3.11" }}
+      - run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - run: pip install loophole
+      - run: loophole contract validate loophole.json
+      - run: loophole run --contract loophole.json --workspace .
+"""),
+    "gitlab": (".gitlab-ci.yml", """\
+loophole-gate:
+  image: python:3.11
+  script:
+    - apt-get update && apt-get install -y bubblewrap
+    - pip install loophole
+    - loophole contract validate loophole.json
+    - loophole run --contract loophole.json --workspace .
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+"""),
+}
+
+
+def _write_ci_workflow(repo: str, provider: str) -> str:
+    rel, content = _CI_WORKFLOWS[provider]
+    dest = os.path.join(repo, rel)
+    os.makedirs(os.path.dirname(dest) or repo, exist_ok=True)
+    with open(dest, "w", encoding="utf-8") as f:
+        f.write(content)
+    return rel
+
+
+_EXECUTOR_ADAPTERS = {
+    "claude-code": "claude -p {task}",
+    "aider": "aider --yes --message {task}",
+    "shell": "sh -c {task}",
+}
+
+
+@main.group()
+def executor() -> None:
+    """Bring-your-own executor adapters (run an external agent as the worker)."""
+
+
+@executor.command("list")
+def executor_list() -> None:
+    """List known executor adapters and their --executor-command strings."""
+    for name, cmd in _EXECUTOR_ADAPTERS.items():
+        click.echo("{:14} loophole run --executor-command '{}'".format(name, cmd))
+    click.echo("\n{task} is replaced with the (shell-quoted) task description.")
+
+
+@executor.command("test")
+@click.argument("name")
+def executor_test(name: str) -> None:
+    """Smoke-check that an adapter's CLI is available on PATH."""
+    import shutil as _sh
+    if name not in _EXECUTOR_ADAPTERS:
+        raise click.ClickException(
+            "unknown adapter '{}'. Known: {}".format(name, ", ".join(_EXECUTOR_ADAPTERS)))
+    cmd = _EXECUTOR_ADAPTERS[name]
+    binary = cmd.split()[0]
+    if _sh.which(binary):
+        click.echo(click.style("ok", fg="green")
+                   + " — '{}' found. Use: loophole run --executor-command '{}'".format(binary, cmd))
+    else:
+        raise click.ClickException(
+            "'{}' not on PATH — install it or pick another adapter (loophole executor list)".format(binary))
 
 
 @main.group()
