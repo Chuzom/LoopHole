@@ -143,6 +143,27 @@ class Integration:
             return
         _git(["reset", "--hard", "-q", commit], self.workspace, check=False)
 
+    _GREEN_REF = "refs/loophole/last_green"
+
+    def mark_green(self, commit: Optional[str]) -> None:
+        """Record ``commit`` as the latest verified-green integration HEAD (R3).
+
+        Durable across crashes (it's a git ref). A startup reconciliation can use
+        it to roll an ungated, crash-left HEAD back to the last green commit.
+        """
+        if not self.is_git or not commit:
+            return
+        _git(["update-ref", self._GREEN_REF, commit], self.workspace, check=False)
+
+    def last_green(self) -> Optional[str]:
+        """The last commit recorded green via ``mark_green``, or None."""
+        if not self.is_git:
+            return None
+        rc, out = _git(["rev-parse", "--verify", "-q", self._GREEN_REF + "^{commit}"],
+                       self.workspace, check=False)
+        out = (out or "").strip()
+        return out if rc == 0 and out else None
+
     def discard_worktree(self, task_id: str) -> None:
         if not self.is_git:
             return

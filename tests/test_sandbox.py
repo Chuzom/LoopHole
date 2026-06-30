@@ -39,11 +39,14 @@ def test_unsafe_optout_runs_unconfined(monkeypatch):
 
 def test_wrap_is_shell_false_argv(monkeypatch):
     # Whatever the mechanism, wrap() returns a list ending in the sh -c form so
-    # callers use shell=False (no double-shell exposure).
+    # callers use shell=False (no double-shell exposure). The final arg is the
+    # command, prefixed with the rlimit backstop.
     monkeypatch.setattr(sandbox, "mechanism", lambda: "seatbelt")
     argv = sandbox.wrap("echo hi", "/tmp", SandboxPolicy())
     assert argv[0] == "sandbox-exec"
-    assert argv[-3:] == ["/bin/sh", "-c", "echo hi"]
+    assert argv[-3:-1] == ["/bin/sh", "-c"]
+    assert argv[-1].endswith("echo hi")
+    assert "ulimit" in argv[-1]   # resource-limit backstop applied
 
 
 # ---- real boundary enforcement (skipped when no mechanism) --------------

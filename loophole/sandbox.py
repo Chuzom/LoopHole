@@ -32,6 +32,16 @@ from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
 
+# RLIMIT backstops applied inside the sandbox shell against resource-exhaustion
+# DoS (fork/CPU/disk). Only per-process limits that are always safe to lower:
+# CPU seconds (RLIMIT_CPU) and file size (RLIMIT_FSIZE, in 512-byte blocks ~= 2GB).
+# Deliberately NOT RLIMIT_NPROC — it counts ALL of the real UID's processes, so a
+# low value can break fork() on a busy host; process-count caps are a cgroup
+# (Linux) / follow-up concern. The wall-clock timeout + process-group kill in the
+# callers remain the primary fork-bomb backstop.
+_RLIMIT_PREFIX = "ulimit -t 900 2>/dev/null; ulimit -f 4194304 2>/dev/null; "
+
+
 class SandboxUnavailable(RuntimeError):
     """No OS sandbox mechanism is available and the caller did not opt out.
 
@@ -187,10 +197,11 @@ def wrap(command: str, root: str, policy: SandboxPolicy) -> List[str]:
         tmp = _scratch_tmp(root)
         os.makedirs(tmp, exist_ok=True)   # scoped temp; covered by the root allow
         env_prefix = ["/usr/bin/env", "TMPDIR=" + tmp]
+        limited = _RLIMIT_PREFIX + command
         if mech == "seatbelt":
             profile = _seatbelt_profile(root, policy)
-            return ["sandbox-exec", "-p", profile] + env_prefix + ["/bin/sh", "-c", command]
-        return _bwrap_argv(command, root, policy, tmp)
+            return ["sandbox-exec", "-p", profile] + env_prefix + ["/bin/sh", "-c", limited]
+        return _bwrap_argv(limited, root, policy, tmp)
     if policy.allow_unsandboxed:
         # Explicit, logged-by-caller escape hatch. NOT confined.
         return ["/bin/sh", "-c", command]

@@ -201,6 +201,10 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
     if base_commit is None and integ.head():
         base_commit = integ.head()
         store.set_goal_base_commit(goal_id, base_commit)
+    # Seed the verified-green marker (R3 durability) so each gated merge can advance
+    # it; the starting commit is the floor.
+    if integ.last_green() is None:
+        integ.mark_green(base_commit)
 
     # Pre-flight: verifier adversary review (fix F)
     bypasses: List[str] = []
@@ -438,8 +442,16 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
                 # merge never poisons the worktrees that branch off it. This holds
                 # the git lock — the merge-train is serial by design.
                 if integ.is_git and (contract.hard_verifiers or contract.all_protected_paths):
-                    gate = verify_candidate(contract, integ, baseline_total,
-                                            base_commit=base_commit, gate_only=True)
+                    try:
+                        gate = verify_candidate(contract, integ, baseline_total,
+                                                base_commit=base_commit, gate_only=True)
+                    except Exception as e:
+                        # Never leave a merged-but-unverified HEAD on a gate error:
+                        # roll back so a failure can't poison downstream worktrees.
+                        integ.reset_hard(pre_merge or "HEAD")
+                        _fail_task(store, integ, task, goal_id, cfg, attempts,
+                                   "merge gate errored, rolled back: {}".format(e), say)
+                        return
                     if not gate.passed:
                         integ.reset_hard(pre_merge or "HEAD")
                         store.log("merge_gate_reject", goal_id=goal_id, task_id=task.id,
@@ -450,6 +462,7 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
                                    "; ".join((gate.failures + gate.boundary_violations)[:5]),
                                    say)
                         return
+                    integ.mark_green(integ.head())
             store.update_task(task.id, status="done", result=res.summary,
                               artifact_commit=sha)
             store.log("task_done", goal_id=goal_id, task_id=task.id,
