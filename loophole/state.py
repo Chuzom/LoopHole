@@ -212,9 +212,18 @@ class Store:
                 "SELECT * FROM tasks WHERE goal_id=? ORDER BY created_at", (goal_id,)))
         return [Task.from_row(r) for r in rows]
 
+    _UPDATABLE_TASK_COLS = frozenset({
+        "status", "result", "artifact_commit", "attempts", "last_error",
+        "plan_hash", "depends_on", "reads", "writes", "description"})
+
     def update_task(self, tid: str, **fields: Any) -> None:
         if not fields:
             return
+        # SEC-5: column names are interpolated into the SQL, so allowlist them —
+        # never build SQL from caller-controlled field names.
+        bad = set(fields) - self._UPDATABLE_TASK_COLS
+        if bad:
+            raise ValueError("update_task: unknown column(s): {}".format(sorted(bad)))
         cols = []
         vals: List[Any] = []
         for k, v in fields.items():

@@ -7,6 +7,7 @@ that roles should auto-downgrade to cheaper models; at 100% it signals pause
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -22,9 +23,15 @@ class Budget:
     spent_usd: float = 0.0
     spent_tokens: int = 0
 
+    def __post_init__(self) -> None:
+        # ARCH-3: charge() runs concurrently across the executor pool; guard the
+        # read-modify-write so spend isn't undercounted and ceilings aren't overrun.
+        self._lock = threading.Lock()
+
     def charge(self, usd: float, tokens: int) -> None:
-        self.spent_usd += usd
-        self.spent_tokens += tokens
+        with self._lock:
+            self.spent_usd += usd
+            self.spent_tokens += tokens
 
     @property
     def cost_fraction(self) -> float:
