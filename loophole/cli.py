@@ -14,6 +14,7 @@ from .budget import Budget, estimate as estimate_cost
 from .contract import GoalContract, Verifier, VerifierKind, ContractError
 from .initializer import (CONTRACT_FILENAME, detect_contract, write_starter,
                           load_contract)
+from .audit import render_audit, render_runs
 from .loop import Roles, LoopConfig, run_goal
 from .provider import make_provider, ProviderError
 from .report import residual_risk_report
@@ -202,6 +203,30 @@ def status(goal_id: str, db: Optional[str]) -> None:
         dep = (" <- " + ",".join(t.depends_on)) if t.depends_on else ""
         click.echo("  " + click.style("[{}]".format(t.status), fg=color) +
                    " " + t.description[:70] + dep)
+    store.close()
+
+
+@main.command()
+@click.argument("goal_id")
+@click.option("--db", default=None)
+def audit(goal_id: str, db: Optional[str]) -> None:
+    """Show the full audit trail for a run (every boundary decision, with reasons)."""
+    store = Store(db or _default_db())
+    g = store.get_goal(goal_id)
+    if not g:
+        raise click.ClickException("no such goal: " + goal_id)
+    goal_text = GoalContract.from_json(g["contract"]).goal
+    click.echo(render_audit(g, store.events(goal_id), goal_text))
+    store.close()
+
+
+@main.command()
+@click.option("--db", default=None)
+def runs(db: Optional[str]) -> None:
+    """List past runs with their outcome."""
+    store = Store(db or _default_db())
+    click.echo(render_runs(store.list_goals(),
+                           lambda g: GoalContract.from_json(g["contract"]).goal))
     store.close()
 
 
