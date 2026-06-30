@@ -495,19 +495,28 @@ def watch(goal_id: str, db: Optional[str], once: bool, interval: float) -> None:
 @click.option("--host", default="127.0.0.1", help="Bind host.")
 @click.option("--port", default=8765, type=int, help="Port (0 = pick a free one).")
 @click.option("--no-browser", is_flag=True, help="Don't auto-open a browser.")
+@click.option("--demo", is_flag=True, help="Self-driving live demo (no LLM, no real run).")
 def serve(goal_id: Optional[str], db: Optional[str], host: str, port: int,
-          no_browser: bool) -> None:
+          no_browser: bool, demo: bool) -> None:
     """Live WEB view of a run — THE FORGE in the browser (Phase 1).
 
     With no GOAL_ID, opens the FLEET view (all runs, click a card to drill in). Pass
-    a GOAL_ID to open that run's Forge directly. Run goals in one terminal and
-    `loophole serve` in another to watch the fleet live.
+    a GOAL_ID to open that run's Forge directly. `--demo` spins up a self-driving
+    fleet so you can watch the UI animate without an LLM or a real run.
     """
     from .serve import serve as _serve
-    store = Store(db or _default_db())
-    if goal_id and not store.get_goal(goal_id):
-        store.close()
-        raise click.ClickException("no such goal: " + goal_id)
+    if demo:
+        import tempfile
+        store = Store(os.path.join(tempfile.mkdtemp(prefix="loophole_demo_"), "demo.db"))
+        from .serve_demo import seed_and_simulate
+        seed_and_simulate(store)
+        click.echo("demo mode — self-driving fleet (no LLM).")
+        goal_id = None
+    else:
+        store = Store(db or _default_db())
+        if goal_id and not store.get_goal(goal_id):
+            store.close()
+            raise click.ClickException("no such goal: " + goal_id)
     try:
         _serve(store, goal_id, host=host, port=port, open_browser=not no_browser)
     finally:

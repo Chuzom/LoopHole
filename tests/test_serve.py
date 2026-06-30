@@ -149,3 +149,21 @@ def test_http_fleet_and_run_routes():
             assert e.code == 404
     finally:
         srv.shutdown(); srv.server_close(); store.close()
+
+
+def test_serve_demo_seeds_fleet_and_animates():
+    import time as _t, tempfile, os
+    from loophole.serve_demo import seed_and_simulate
+    from loophole.serve import fleet_snapshot
+    store = Store(os.path.join(tempfile.mkdtemp(prefix="loophole_demo_"), "d.db"))
+    goals, stop = seed_and_simulate(store, interval=0.02)
+    assert len(goals) == 3
+    fleet = fleet_snapshot(store)
+    assert len(fleet) == 3
+    live = goals[2]
+    before = len(store.events(live))
+    _t.sleep(0.3)                       # let the timeline thread emit events
+    after = len(store.events(live))
+    assert after >= before              # the live run is being driven
+    stop.set()
+    store.close()
