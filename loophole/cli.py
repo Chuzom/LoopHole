@@ -12,6 +12,8 @@ import click
 from . import __version__
 from .budget import Budget, estimate as estimate_cost
 from .contract import GoalContract, Verifier, VerifierKind, ContractError
+from .initializer import (CONTRACT_FILENAME, detect_contract, write_starter,
+                          load_contract)
 from .loop import Roles, LoopConfig, run_goal
 from .provider import make_provider, ProviderError
 from .report import residual_risk_report
@@ -35,7 +37,32 @@ def main() -> None:
 
 
 @main.command()
-@click.argument("goal")
+@click.option("--path", "repo", default=".", help="Repo to inspect.")
+@click.option("--force", is_flag=True, help="Overwrite an existing loophole.json.")
+def init(repo: str, force: bool) -> None:
+    """Infer a starter contract (loophole.json) from the repo.
+
+    Inspects the filesystem only — no code execution, no model calls. Edit the
+    emitted 'goal' field, then run with --contract.
+    """
+    repo = os.path.realpath(repo)
+    out = os.path.join(repo, CONTRACT_FILENAME)
+    if os.path.exists(out) and not force:
+        raise click.ClickException(
+            "{} already exists (use --force to overwrite)".format(CONTRACT_FILENAME))
+    contract, notes = detect_contract(repo)
+    write_starter(contract, out)
+    for n in notes:
+        _say(n)
+    click.echo("wrote " + click.style(out, fg="green"))
+    click.echo("edit the \"goal\" field, then: "
+               + click.style("loophole run --contract loophole.json", fg="cyan"))
+
+
+@main.command()
+@click.argument("goal", required=False)
+@click.option("--contract", "contract_path", default=None,
+              help="Load the contract from a file (e.g. loophole.json from `init`).")
 @click.option("--verify", "verify_cmd", default=None,
               help="Hard verifier command (exit 0 = done), e.g. 'pytest -q'.")
 @click.option("--human", is_flag=True, help="Add a human checkpoint at completion.")
@@ -53,24 +80,50 @@ def main() -> None:
               help="Min test-count change vs baseline (anti reward-hacking).")
 @click.option("--skip-critique", is_flag=True, help="Skip plan critic + verifier adversary.")
 @click.option("--db", default=None, help="State DB path.")
-def run(goal: str, verify_cmd: Optional[str], human: bool, workspace: str,
+def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[str],
+        human: bool, workspace: str,
         planner_model: str, executor_model: str, critic_model: Optional[str],
         cheap_model: Optional[str], max_parallel: int, max_rounds: int,
         max_cost: float, max_tokens: int, protect: tuple,
         expect_test_delta: Optional[int], skip_critique: bool, db: Optional[str]) -> None:
-    """Run a goal until its acceptance contract passes."""
-    verifiers: List[Verifier] = []
-    if verify_cmd:
-        verifiers.append(Verifier(
-            kind=VerifierKind.HARD, command=verify_cmd,
-            protected_paths=list(protect), expected_test_delta=expect_test_delta))
-    if human or not verify_cmd:
-        verifiers.append(Verifier(kind=VerifierKind.HUMAN,
-                                  prompt="Does the result satisfy: " + goal + "?"))
-    contract = GoalContract(goal=goal, verifiers=verifiers,
-                            protected_paths=list(protect),
-                            max_cost_usd=max_cost, max_tokens=max_tokens,
-                            max_rounds=max_rounds)
+    """Run a goal until its acceptance contract passes.
+
+    Provide a GOAL with flags, or load a contract file with --contract. With no
+    GOAL and a ./loophole.json present, that file is auto-loaded (from `init`).
+    """
+    # Auto-discover ./loophole.json when no goal and no explicit contract given.
+    if contract_path is None and goal is None and os.path.exists(CONTRACT_FILENAME):
+        contract_path = CONTRACT_FILENAME
+
+    if contract_path:
+        try:
+            contract = load_contract(contract_path)
+        except (OSError, ValueError) as e:
+            raise click.ClickException(
+                "could not load contract {}: {}".format(contract_path, e))
+        if goal:                      # an explicit GOAL arg overrides the file's
+            contract.goal = goal
+        if contract.goal.strip().startswith("TODO"):
+            raise click.ClickException(
+                "the contract goal is still a TODO — edit {} and set a real goal"
+                .format(contract_path))
+    else:
+        if not goal:
+            raise click.ClickException(
+                "provide a GOAL, or run `loophole init` then "
+                "`loophole run --contract loophole.json`")
+        verifiers: List[Verifier] = []
+        if verify_cmd:
+            verifiers.append(Verifier(
+                kind=VerifierKind.HARD, command=verify_cmd,
+                protected_paths=list(protect), expected_test_delta=expect_test_delta))
+        if human or not verify_cmd:
+            verifiers.append(Verifier(kind=VerifierKind.HUMAN,
+                                      prompt="Does the result satisfy: " + goal + "?"))
+        contract = GoalContract(goal=goal, verifiers=verifiers,
+                                protected_paths=list(protect),
+                                max_cost_usd=max_cost, max_tokens=max_tokens,
+                                max_rounds=max_rounds)
     try:
         contract.validate()
     except ContractError as e:
@@ -93,9 +146,9 @@ def run(goal: str, verify_cmd: Optional[str], human: bool, workspace: str,
     click.echo(click.style("goal ", fg="green") + goal_id)
     click.echo("workspace: " + workspace)
 
-    budget = Budget(max_cost_usd=max_cost, max_tokens=max_tokens)
+    budget = Budget(max_cost_usd=contract.max_cost_usd, max_tokens=contract.max_tokens)
     cfg = LoopConfig(max_parallel=max_parallel, skip_plan_critique=skip_critique,
-                     on_human=_human_checkpoint if (human or not verify_cmd) else None)
+                     on_human=_human_checkpoint if contract.human_verifiers else None)
 
     outcome = run_goal(store, goal_id, contract, roles, budget, cfg, log=_say)
 
