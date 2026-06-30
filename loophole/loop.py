@@ -122,25 +122,49 @@ def verify_candidate(contract: GoalContract, integ: Integration,
     base = tempfile.mkdtemp(prefix="loophole_basechk_")
     try:
         integ.fresh_checkout(cand, integ.head())
-        results: List[VerifierResult] = []
-        all_metrics: Dict[str, float] = {}
-        hard_pass = True
-        for v in contract.hard_verifiers:
-            r = run_command_verifier(v, cand)
-            results.append(r)
-            # C4/C6 fix: SUM numeric metrics across verifiers instead of
-            # overwriting, so the candidate total matches the summed baseline.
-            for k, val in r.metrics.items():
-                all_metrics[k] = all_metrics.get(k, 0.0) + val
-            hard_pass = hard_pass and r.passed
+        # ARCH-2: the deterministic checks (hard verifiers + boundary + test-count)
+        # depend only on the candidate TREE (base_commit/baseline are fixed per
+        # goal), so memoise them by tree sha. This eliminates the guaranteed
+        # duplicate where a merge gate verifies tree T and the round-level verify
+        # re-verifies the same T, and skips re-running a suite on an unchanged tree.
+        tree = integ.tree_sha()
+        cache = getattr(integ, "_hard_cache", None)
+        if cache is None:
+            cache = {}
+            try:
+                integ._hard_cache = cache
+            except Exception:
+                cache = None
+        key = (tree, base_commit, baseline_total)
+        cached = cache.get(key) if (cache is not None and tree) else None
+        if cached is not None:
+            hard_results, all_metrics, hard_pass, violations = cached
+        else:
+            hard_results = []
+            all_metrics = {}
+            hard_pass = True
+            for v in contract.hard_verifiers:
+                r = run_command_verifier(v, cand)
+                hard_results.append(r)
+                # C4/C6 fix: SUM numeric metrics across verifiers instead of
+                # overwriting, so the candidate total matches the summed baseline.
+                for k, val in r.metrics.items():
+                    all_metrics[k] = all_metrics.get(k, 0.0) + val
+                hard_pass = hard_pass and r.passed
 
-        violations: List[str] = []
-        if contract.all_protected_paths:
-            # GAP 1 fix: compare against the goal's ORIGINAL start commit, not HEAD.
-            start = base_commit or integ.head()
-            integ.fresh_checkout(base, start)
-            violations += check_boundary(contract, base, cand)
-        violations += check_test_count(contract, all_metrics, baseline_total)
+            violations = []
+            if contract.all_protected_paths:
+                # GAP 1 fix: compare against the goal's ORIGINAL start commit.
+                start = base_commit or integ.head()
+                integ.fresh_checkout(base, start)
+                violations += check_boundary(contract, base, cand)
+            violations += check_test_count(contract, all_metrics, baseline_total)
+            if cache is not None and tree:
+                cache[key] = (hard_results, dict(all_metrics), hard_pass, list(violations))
+
+        # Fresh list so soft-verifier appends never mutate the cached hard results.
+        results: List[VerifierResult] = list(hard_results)
+        violations = list(violations)
 
         # N1 fix: a goal with NO hard verifier is automatically "ok" so the loop
         # can reach its human checkpoint; otherwise every hard verifier must pass.
