@@ -120,6 +120,8 @@ def contract_show(path: str) -> None:
               help="Hard verifier command (exit 0 = done), e.g. 'pytest -q'.")
 @click.option("--human", is_flag=True, help="Add a human checkpoint at completion.")
 @click.option("--workspace", default="./loophole-out", help="Directory agents work in.")
+@click.option("--watch", "watch_live", is_flag=True,
+              help="Live-render THE FORGE (the swarm view) during the run.")
 @click.option("--planner-model", default="ollama:llama3", help="provider:model for planning.")
 @click.option("--executor-model", default="ollama:llama3", help="provider:model for execution.")
 @click.option("--executor-command", default=None,
@@ -138,7 +140,7 @@ def contract_show(path: str) -> None:
 @click.option("--skip-critique", is_flag=True, help="Skip plan critic + verifier adversary.")
 @click.option("--db", default=None, help="State DB path.")
 def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[str],
-        human: bool, workspace: str,
+        human: bool, workspace: str, watch_live: bool,
         planner_model: str, executor_model: str, executor_command: Optional[str],
         critic_model: Optional[str],
         cheap_model: Optional[str], max_parallel: int, max_rounds: int,
@@ -209,7 +211,16 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
                      on_human=_human_checkpoint if contract.human_verifiers else None,
                      executor_command=executor_command)
 
-    outcome = run_goal(store, goal_id, contract, roles, budget, cfg, log=_say)
+    if watch_live:
+        # Render THE FORGE live while the loop runs in a background thread; suppress
+        # the per-line log so it doesn't fight the full-screen view.
+        from .watch import watch_during
+        outcome = watch_during(
+            store, goal_id,
+            lambda: run_goal(store, goal_id, contract, roles, budget, cfg,
+                             log=lambda _m: None))
+    else:
+        outcome = run_goal(store, goal_id, contract, roles, budget, cfg, log=_say)
 
     click.echo()
     click.echo(residual_risk_report(

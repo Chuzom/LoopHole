@@ -151,6 +151,49 @@ def _verdict(verify_event: Any, boundary_event: Any, color: bool) -> tuple:
     return ("✗ fail", "red")
 
 
+def watch_during(store: Any, goal_id: str, run_callable, interval: float = 0.7,
+                 out: Any = None):
+    """Run ``run_callable()`` in a background thread while live-rendering THE FORGE
+    in the foreground; return whatever run_callable returns.
+
+    Used by ``loophole run --watch`` so the user watches the swarm work instead of a
+    scrolling log. The store is cross-thread safe (check_same_thread=False + lock).
+    """
+    import sys
+    import threading
+    import time
+    from .contract import GoalContract
+    out = out or sys.stdout
+    color = out.isatty() if hasattr(out, "isatty") else False
+    box: dict = {}
+
+    def _runner():
+        try:
+            box["result"] = run_callable()
+        except BaseException as e:   # surface in the main thread after join
+            box["error"] = e
+
+    def _draw():
+        g = store.get_goal(goal_id)
+        if not g:
+            return
+        frame = render_frame(GoalContract.from_json(g["contract"]).goal, g["status"],
+                             store.tasks_for_goal(goal_id), store.events(goal_id), color=color)
+        out.write(_CLEAR_HOME + frame + "\n")
+        out.flush()
+
+    t = threading.Thread(target=_runner, daemon=True)
+    t.start()
+    while t.is_alive():
+        _draw()
+        time.sleep(interval)
+    t.join()
+    _draw()  # final frame (terminal state)
+    if "error" in box:
+        raise box["error"]
+    return box.get("result")
+
+
 def run_watch(store: Any, goal_id: str, interval: float = 1.0, once: bool = False,
               out: Any = None) -> None:
     """Live loop: redraw the Forge until the goal reaches a terminal state."""
