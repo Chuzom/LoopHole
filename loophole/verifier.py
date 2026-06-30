@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from .contract import GoalContract, Verifier, VerifierKind
+from .sandbox import SandboxPolicy, SandboxUnavailable, scrub_env, wrap
 
 if TYPE_CHECKING:
     from .provider import Provider
@@ -88,27 +89,26 @@ def parse_pytest(output: str) -> Dict[str, float]:
     return metrics
 
 
-_SECRET_RE = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API)", re.I)
-
-
-def _scrub_env(extra: Dict[str, str]) -> Dict[str, str]:
-    """S2 fix: never hand provider API keys / secrets to verifier subprocesses.
-
-    Verifiers run agent-influenced code (pytest imports the candidate). Passing the
-    full environment lets any dependency exfiltrate ANTHROPIC_API_KEY, cloud creds,
-    etc. We drop anything that looks like a secret and keep the rest (PATH, HOME…).
-    """
-    safe = {k: val for k, val in os.environ.items() if not _SECRET_RE.search(k)}
-    safe.update(extra or {})
-    return safe
+# Back-compat alias: the canonical scrubber now lives in the security module
+# (sandbox.py) so run_shell and verifiers share one implementation (S1).
+_scrub_env = scrub_env
 
 
 def run_command_verifier(v: Verifier, cwd: str, timeout: int = 600) -> VerifierResult:
     name = "hard:" + (v.command or "")
+    # S1: run the (agent-influenced) verifier command under the OS sandbox.
+    # Network is denied unless the verifier explicitly opts in (e.g. it must
+    # `pip install`). Fail-closed: no sandbox mechanism => the check cannot pass.
     try:
-        proc = subprocess.run(v.command, shell=True, cwd=cwd, timeout=timeout,
+        argv = wrap(v.command or "", cwd,
+                    SandboxPolicy(allow_network=getattr(v, "allow_network", False)))
+    except SandboxUnavailable as e:
+        return VerifierResult(name=name, passed=False,
+                              failures=["sandbox unavailable"], output=str(e))
+    try:
+        proc = subprocess.run(argv, cwd=cwd, timeout=timeout,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              text=True, env=_scrub_env(v.environment))
+                              text=True, env=scrub_env(v.environment))
         output = proc.stdout or ""
         rc = proc.returncode
     except subprocess.TimeoutExpired as e:

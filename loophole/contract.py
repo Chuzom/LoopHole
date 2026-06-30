@@ -37,6 +37,7 @@ class Verifier:
     protected_paths: List[str] = field(default_factory=list)  # editing these => instant fail
     expected_test_delta: Optional[int] = None  # test count may not silently drop below baseline+delta
     environment: dict = field(default_factory=dict)
+    allow_network: bool = False   # S1: opt this verifier out of the sandbox network deny
 
     def __post_init__(self) -> None:
         if isinstance(self.kind, str):
