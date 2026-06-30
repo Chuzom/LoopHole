@@ -86,103 +86,129 @@ def fleet_snapshot(store: Any) -> list:
 INDEX_HTML = r"""<!doctype html>
 <html><head><meta charset="utf-8"><title>loophole — THE FORGE</title>
 <style>
-  html,body{margin:0;height:100%;background:#0a0e14;color:#cbd5e1;
+  html,body{margin:0;height:100%;background:#0a0e1a;color:#cbd5e1;
     font:14px ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden}
-  canvas{display:block;position:fixed;inset:0;width:100vw;height:100vh}
-  #gl{z-index:0}#c{z-index:1}
-  #hud{position:fixed;top:10px;left:14px;right:14px;z-index:2;display:flex;
-    justify-content:space-between;pointer-events:none;text-shadow:0 0 8px #000}
+  #c{display:block;width:100vw;height:100vh}
+  #hud{position:fixed;top:10px;left:14px;right:14px;display:flex;justify-content:space-between;
+    pointer-events:none;text-shadow:0 0 8px #000;z-index:2}
   .tag{color:#64748b}
+  a{color:#64748b;text-decoration:none;pointer-events:auto}
 </style></head><body>
-<canvas id="gl"></canvas>
 <canvas id="c"></canvas>
-<div id="hud"><div><a href="/fleet" style="color:#64748b;text-decoration:none;pointer-events:auto">← fleet</a> &nbsp;<b style="color:#e2e8f0">loophole</b> <span class="tag">— THE FORGE</span></div>
-<div id="status" class="tag"></div></div>
+<div id="hud">
+  <div><a href="/fleet">&#8592; fleet</a> &nbsp;<b style="color:#e2e8f0">loophole</b> <span class="tag">— THE FORGE</span></div>
+  <div id="status" class="tag"></div>
+</div>
 <script>
-const Q=new URLSearchParams(location.search),GOAL=Q.get('goal')||'';
-let S={goal:'',status:'',tasks:[],events:[]},t0=performance.now();
-let gateFlash=0,gateColor='#475569',gateRGB=[0.97,0.45,0.13],shieldFlash=0,lastSeq=0;
-
-// ---------- transport: SSE with polling fallback ----------
-function applyState(ns){ derive(ns); S=ns; }
-function poll(){ fetch('/api/state'+(GOAL?('?goal='+encodeURIComponent(GOAL)):''))
-  .then(r=>r.ok?r.json():null).then(ns=>{if(ns)applyState(ns);})
-  .catch(()=>{}).finally(()=>setTimeout(poll,700)); }
-(function connect(){ if(!window.EventSource){return poll();}
-  let es; try{ es=new EventSource('/events'+(GOAL?('?goal='+encodeURIComponent(GOAL)):'')); }
-  catch(e){ return poll(); }
-  es.onmessage=ev=>{ try{applyState(JSON.parse(ev.data));}catch(e){} };
-  es.onerror=()=>{ try{es.close();}catch(e){} poll(); }; })();
-
-function derive(ns){ let verdict=null,shield=false,maxseq=lastSeq;
-  for(const e of ns.events){ if(e.seq<=lastSeq) continue; maxseq=Math.max(maxseq,e.seq);
-    if(e.kind==='verify_run') verdict=(e.payload&&e.payload.passed)?'pass':'fail';
-    if(e.kind==='merge_gate_reject') verdict='fail';
-    if(['write_glob_violation','merge_gate_reject','soft_fail_closed'].includes(e.kind)) shield=true; }
-  if(ns.status==='done') verdict='pass';
-  if(verdict){ gateColor=verdict==='pass'?'#22c55e':'#ef4444';
-    gateRGB=verdict==='pass'?[0.13,0.77,0.37]:[0.94,0.27,0.27]; gateFlash=1; }
-  if(shield) shieldFlash=1; lastSeq=maxseq; }
-
-// ---------- WebGL ember layer (graceful fallback if unavailable) ----------
-const glc=document.getElementById('gl');
-let gl=null,prog=null,N=1400,uT,uC,uF;
-try{ gl=glc.getContext('webgl')||glc.getContext('experimental-webgl'); }catch(e){}
-function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);return s;}
-if(gl){ initGL(); }
-function initGL(){
-  const vs="attribute vec2 a;attribute float ph;attribute float sp;uniform float uT;"+
-    "void main(){float y=mod(a.y+uT*sp*0.06,1.0);float x=a.x+0.03*sin((uT*sp+ph)*6.28);"+
-    "gl_Position=vec4(x*2.0-1.0,y*2.0-1.0,0.0,1.0);gl_PointSize=1.5+5.0*(1.0-y);}";
-  const fs="precision mediump float;uniform vec3 uC;uniform float uF;"+
-    "void main(){vec2 d=gl_PointCoord-0.5;float r=length(d);float a=smoothstep(0.5,0.0,r);"+
-    "gl_FragColor=vec4(uC*(1.0+uF*1.5),a*0.5);}";
-  prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));
-  gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);gl.useProgram(prog);
-  const A=new Float32Array(N*2),PH=new Float32Array(N),SP=new Float32Array(N);
-  for(let i=0;i<N;i++){A[i*2]=Math.random();A[i*2+1]=Math.random();PH[i]=Math.random();SP[i]=0.4+Math.random();}
-  function buf(data,loc,size){const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
-    gl.bufferData(gl.ARRAY_BUFFER,data,gl.STATIC_DRAW);const l=gl.getAttribLocation(prog,loc);
-    gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,size,gl.FLOAT,false,0,0);}
-  buf(A,'a',2);buf(PH,'ph',1);buf(SP,'sp',1);
-  uT=gl.getUniformLocation(prog,'uT');uC=gl.getUniformLocation(prog,'uC');uF=gl.getUniformLocation(prog,'uF');
-  gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
-}
-function drawGL(t){ if(!gl||!prog) return; gl.viewport(0,0,glc.width,glc.height);
-  gl.clearColor(0.04,0.055,0.08,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(prog);
-  // ember color: forge-orange at rest, tinted toward the gate color on a flash
-  const o=[0.97,0.45,0.13],f=Math.min(1,gateFlash);
-  gl.uniform3f(uC,o[0]+(gateRGB[0]-o[0])*f,o[1]+(gateRGB[1]-o[1])*f,o[2]+(gateRGB[2]-o[2])*f);
-  gl.uniform1f(uT,t);gl.uniform1f(uF,gateFlash);gl.drawArrays(gl.POINTS,0,N); }
-
-// ---------- 2D overlay: gate, lanes, text ----------
 const cv=document.getElementById('c'),x=cv.getContext('2d');
-function fit(){const d=devicePixelRatio||1;for(const el of [cv,glc]){el.width=innerWidth*d;el.height=innerHeight*d;}
+const Q=new URLSearchParams(location.search),GOAL=Q.get('goal')||'';
+let S={goal:'',status:'',tasks:[],events:[]};
+let gateColor='#475569',gateFlash=0,frightenedUntil=0,happyUntil=0,lastSeq=0,sparkles=[];
+
+// ---- transport: SSE with polling fallback (data layer unchanged) ----
+function applyState(ns){derive(ns);S=ns;}
+function poll(){fetch('/api/state'+(GOAL?('?goal='+encodeURIComponent(GOAL)):''))
+  .then(r=>r.ok?r.json():null).then(ns=>{if(ns)applyState(ns);})
+  .catch(()=>{}).finally(()=>setTimeout(poll,700));}
+(function connect(){if(!window.EventSource)return poll();
+  let es;try{es=new EventSource('/events'+(GOAL?('?goal='+encodeURIComponent(GOAL)):''));}
+  catch(e){return poll();}
+  es.onmessage=ev=>{try{applyState(JSON.parse(ev.data));}catch(e){}};
+  es.onerror=()=>{try{es.close();}catch(e){}poll();};})();
+
+function derive(ns){let verdict=null,save=false,maxseq=lastSeq;
+  for(const e of ns.events){if(e.seq<=lastSeq)continue;maxseq=Math.max(maxseq,e.seq);
+    if(e.kind==='verify_run')verdict=(e.payload&&e.payload.passed)?'pass':'fail';
+    if(e.kind==='merge_gate_reject')verdict='fail';
+    if(['write_glob_violation','merge_gate_reject','soft_fail_closed'].includes(e.kind))save=true;}
+  if(ns.status==='done')verdict='pass';
+  const now=performance.now();
+  if(verdict==='pass'){gateColor='#22c55e';gateFlash=1;happyUntil=now+2200;}
+  if(verdict==='fail'){gateColor='#ef4444';gateFlash=1;frightenedUntil=now+2600;}
+  if(save){for(let i=0;i<8;i++)sparkles.push({a:1,init:true});}
+  lastSeq=maxseq;}
+
+// ---- the Pac-Man swarm ----
+const PAL=['#ff5d5d','#ffb8ff','#5de0ff','#ffb852','#a0ff7a','#c39bff','#ffe14d'];
+let ghosts=[],pac=null;
+function rnd(a,b){return a+Math.random()*(b-a);}
+function field(){return {x0:60,y0:150,x1:innerWidth*0.58,y1:innerHeight-120};}
+function spawnGhost(i){const f=field();return{
+  x:rnd(f.x0,f.x1),y:rnd(f.y0,f.y1),vx:rnd(-45,45),vy:rnd(-32,32),
+  color:PAL[i%PAL.length],ph:Math.random()*6.28,blink:0,next:rnd(0.5,1.8)};}
+function syncGhosts(n){while(ghosts.length<n)ghosts.push(spawnGhost(ghosts.length));
+  if(ghosts.length>n)ghosts.length=n;}
+
+function drawGhost(g,frightened,dt){const f=field();
+  if((g.next-=dt)<=0){g.vx=rnd(-60,60);g.vy=rnd(-42,42);g.next=rnd(0.5,1.9);
+    if(Math.random()<0.5)g.blink=0.16;}
+  g.x+=g.vx*dt;g.y+=g.vy*dt;g.ph+=dt*6;
+  if(g.x<f.x0){g.x=f.x0;g.vx=Math.abs(g.vx);}if(g.x>f.x1){g.x=f.x1;g.vx=-Math.abs(g.vx);}
+  if(g.y<f.y0){g.y=f.y0;g.vy=Math.abs(g.vy);}if(g.y>f.y1){g.y=f.y1;g.vy=-Math.abs(g.vy);}
+  const r=16,bob=Math.sin(g.ph)*2.2,gx=g.x,gy=g.y+bob;
+  x.fillStyle=frightened?'#2a44ff':g.color;
+  x.beginPath();x.arc(gx,gy-2,r,Math.PI,0);x.lineTo(gx+r,gy+r);
+  const bumps=4,w=2*r/bumps;
+  for(let i=0;i<bumps;i++){const bx=gx+r-w*i;x.lineTo(bx,gy+r);x.lineTo(bx-w/2,gy+r-6);}
+  x.lineTo(gx-r,gy-2);x.closePath();x.fill();
+  const dir=Math.atan2(g.vy,g.vx),ex=Math.cos(dir),ey=Math.sin(dir);
+  if(g.blink>0)g.blink-=dt;const blink=g.blink>0;
+  for(const s of [-1,1]){const cx=gx+s*r*0.4,cy=gy-r*0.12;
+    x.fillStyle=frightened?'#ffd0e6':'#fff';x.beginPath();
+    x.ellipse(cx,cy,r*0.28,blink?r*0.05:r*0.34,0,0,6.3);x.fill();
+    if(!blink){x.fillStyle=frightened?'#fff':'#2233aa';x.beginPath();
+      x.arc(cx+ex*r*0.12,cy+ey*r*0.16,r*0.13,0,6.3);x.fill();}}}
+
+function drawPac(dt){const f=field();if(!pac)pac={x:f.x0,goRight:true};
+  pac.x+=(pac.goRight?1:-1)*72*dt;
+  if(pac.x>f.x1)pac.goRight=false;if(pac.x<f.x0)pac.goRight=true;
+  const r=18,gy=(f.y0+f.y1)/2+Math.sin(performance.now()/650)*22;
+  x.fillStyle='rgba(148,163,184,0.22)';
+  for(let px=f.x0;px<f.x1;px+=34){x.beginPath();x.arc(px,gy,2.4,0,6.3);x.fill();}
+  const mouth=Math.abs(Math.sin(performance.now()/110))*0.32+0.04;
+  x.save();x.translate(pac.x,gy);x.rotate(pac.goRight?0:Math.PI);
+  x.fillStyle='#ffe14d';x.beginPath();x.moveTo(0,0);
+  x.arc(0,0,r,mouth,6.2832-mouth);x.closePath();x.fill();x.restore();}
+
+function fit(){const d=devicePixelRatio||1;cv.width=innerWidth*d;cv.height=innerHeight*d;
   x.setTransform(d,0,0,d,0,0);}
 addEventListener('resize',fit);fit();
-function lane(i,n){return 110+i*Math.min(64,(innerHeight-260)/Math.max(n,1));}
-function draw(){const W=innerWidth,H=innerHeight,t=(performance.now()-t0)/1000;
-  drawGL(t); x.clearRect(0,0,W,H);
+let lastT=performance.now();
+function draw(){const W=innerWidth,H=innerHeight,now=performance.now();
+  const dt=Math.min(0.05,(now-lastT)/1000);lastT=now;
+  x.fillStyle='#0a0e1a';x.fillRect(0,0,W,H);
+  x.fillStyle='rgba(56,80,140,0.10)';
+  for(let gx=30;gx<W;gx+=28)for(let gy=160;gy<H-90;gy+=28)x.fillRect(gx,gy,2,2);
   x.fillStyle='#e2e8f0';x.font='600 18px ui-monospace,monospace';
   x.fillText('GOAL  '+(S.goal||'…'),20,64);
-  const running=S.tasks.filter(t=>t.status==='running');
+  x.fillStyle='#94a3b8';x.font='13px ui-monospace,monospace';x.fillText('THE SWARM',20,104);
+
+  const running=S.tasks.filter(t=>t.status==='running').length;
   const done=S.tasks.filter(t=>t.status==='done').length;
   const failed=S.tasks.filter(t=>t.status==='failed').length;
-  x.font='13px ui-monospace,monospace';x.fillStyle='#94a3b8';x.fillText('THE SWARM',20,98);
-  running.forEach((tk,i)=>{const y=lane(i,running.length);
-    const pulse=0.55+0.45*Math.sin(i+performance.now()/300);
-    x.beginPath();x.arc(40,y,7,0,7);x.fillStyle='rgba(56,189,248,'+pulse+')';x.fill();
-    x.fillStyle='#38bdf8';x.fillText('⚙ '+(tk.description||'').slice(0,42),58,y+4);});
-  if(!running.length){x.fillStyle='#475569';x.fillText('· no agents active',58,128);}
-  const gx=W*0.68,gy=H*0.5,gw=250,gh=124; gateFlash*=0.94; shieldFlash*=0.95;
-  x.save();x.shadowColor=gateColor;x.shadowBlur=18+70*gateFlash;
-  x.strokeStyle=gateColor;x.lineWidth=3;x.strokeRect(gx-gw/2,gy-gh/2,gw,gh);x.restore();
+  const frightened=now<frightenedUntil;
+  syncGhosts(running);drawPac(dt);
+  for(const g of ghosts)drawGhost(g,frightened,dt);
+  if(!running){x.fillStyle='#475569';x.fillText('· no agents active',60,134);}
+
+  const f=field();
+  for(const s of sparkles){if(s.init){s.x=rnd(f.x0,f.x1);s.y=rnd(f.y0,f.y1);s.init=false;}
+    s.a-=dt*0.8;x.fillStyle='rgba(255,225,77,'+Math.max(0,s.a)+')';
+    x.beginPath();x.arc(s.x,s.y,4+5*(1-s.a),0,6.3);x.fill();}
+  sparkles=sparkles.filter(s=>s.a>0);
+
+  const Gx=W*0.80,Gy=H*0.5,gw=230,gh=120;gateFlash*=0.94;
+  x.save();x.shadowColor=gateColor;x.shadowBlur=16+70*gateFlash;
+  x.strokeStyle=gateColor;x.lineWidth=3;x.strokeRect(Gx-gw/2,Gy-gh/2,gw,gh);x.restore();
   x.fillStyle=gateColor;x.textAlign='center';x.font='700 22px ui-monospace,monospace';
-  x.fillText('VERIFY GATE',gx,gy-12);
+  x.fillText('VERIFY GATE',Gx,Gy-12);
   const verd=S.status==='done'?'✓ DONE':(gateColor==='#22c55e'?'✓ PASS':(gateColor==='#ef4444'?'✗ REJECT':'…'));
-  x.font='700 28px ui-monospace,monospace';x.fillText(verd,gx,gy+26);x.textAlign='left';
+  x.font='700 28px ui-monospace,monospace';x.fillText(verd,Gx,Gy+26);
+  if(now<happyUntil){x.font='22px ui-monospace,monospace';x.fillText('\u{1F389}',Gx,Gy-52);}
+  x.textAlign='left';
+
   const saves=S.events.filter(e=>['write_glob_violation','merge_gate_reject','soft_fail_closed'].includes(e.kind)).length;
-  x.fillStyle='rgba(34,197,94,'+(0.35+0.65*shieldFlash)+')';x.fillText('⛨ BOUNDARY  held ×'+saves,20,H-70);
+  x.fillStyle='#facc15';x.fillText('⛨ BOUNDARY held ×'+saves,20,H-70);
   const vr=[...S.events].reverse().find(e=>e.kind==='verify_run');
   const score=vr&&vr.payload?Math.round(vr.payload.score||0):0;
   const rounds=S.events.filter(e=>e.kind==='verify_run').length;
