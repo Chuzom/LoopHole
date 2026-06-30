@@ -146,3 +146,30 @@ def test_animation_advances_with_frame():
     a = render_frame("g", "running", t, [], color=False, frame=0)
     b = render_frame("g", "running", t, [], color=False, frame=1)
     assert a != b                  # spinner / merge-cart / shimmer moved
+
+
+def test_run_watch_renders_funny_swarm_end_to_end():
+    """The `run --watch` path (watch_during) must show the animated swarm WHILE the
+    run executes and the final PASS frame when it finishes."""
+    import io, time
+    from loophole.watch import watch_during
+    store, _ = _store()
+    gid = store.create_goal(_cjson(), "/ws")
+    store.add_task(gid, "implement parser.py", task_id="t1")
+
+    def _fake_run():
+        store.set_task_status("t1", "running", gid)
+        time.sleep(0.25)                       # let the watcher draw the running swarm
+        store.set_task_status("t1", "done", gid)
+        store.log("verify_run", goal_id=gid, payload={"passed": True, "score": 1000})
+        store.set_goal_status(gid, "done")
+        return "DONE"
+
+    buf = io.StringIO()
+    res = watch_during(store, gid, _fake_run, interval=0.03, out=buf)
+    s = buf.getvalue()
+    assert res == "DONE"
+    assert "THE FORGE" in s and "VERIFY GATE" in s
+    assert any(f in s for f in ["(o_o)", "(0_0)", "(>_>)", "(<_<)", "(-_-)"])  # an agent worked
+    assert "(^_^)v" in s and "PASS" in s        # merged-agent face + final verdict
+    store.close()

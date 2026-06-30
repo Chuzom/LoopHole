@@ -205,7 +205,7 @@ def _verdict(verify_event: Any, boundary_event: Any, color: bool) -> tuple:
     return ("✗ fail", "red")
 
 
-def watch_during(store: Any, goal_id: str, run_callable, interval: float = 0.7,
+def watch_during(store: Any, goal_id: str, run_callable, interval: float = 0.45,
                  out: Any = None):
     """Run ``run_callable()`` in a background thread while live-rendering THE FORGE
     in the foreground; return whatever run_callable returns.
