@@ -17,28 +17,70 @@ from typing import Any, Optional
 from .contract import GoalContract
 
 
+_BOUNDARY_KINDS = ("write_glob_violation", "merge_gate_reject", "soft_fail_closed")
+
+
+def _event_payload(e: Any) -> Optional[dict]:
+    raw = e["payload"] if "payload" in e.keys() else None
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 def build_snapshot(store: Any, goal_id: str) -> Optional[dict]:
-    """A JSON-able snapshot the front end renders from (no engine changes)."""
+    """A JSON-able snapshot the single-run Forge renders from (no engine changes)."""
     g = store.get_goal(goal_id)
     if not g:
         return None
     contract = GoalContract.from_json(g["contract"])
     tasks = [{"id": t.id, "description": t.description, "status": t.status}
              for t in store.tasks_for_goal(goal_id)]
-    events = []
-    for e in store.events(goal_id):
-        payload = None
-        raw = e["payload"] if "payload" in e.keys() else None
-        if raw:
-            try:
-                payload = json.loads(raw)
-            except (json.JSONDecodeError, TypeError):
-                payload = None
-        events.append({
-            "seq": e["seq"], "kind": e["kind"],
-            "task_id": (e["task_id"] if "task_id" in e.keys() else None),
-            "payload": payload, "ts": e["ts"]})
+    events = [{"seq": e["seq"], "kind": e["kind"],
+               "task_id": (e["task_id"] if "task_id" in e.keys() else None),
+               "payload": _event_payload(e), "ts": e["ts"]}
+              for e in store.events(goal_id)]
     return {"goal": contract.goal, "status": g["status"], "tasks": tasks, "events": events}
+
+
+def _run_summary(store: Any, g: Any) -> dict:
+    """One compact run card for the fleet view."""
+    gid = g["id"]
+    try:
+        goal_text = GoalContract.from_json(g["contract"]).goal
+    except Exception:
+        goal_text = "(unparseable contract)"
+    counts: dict = {}
+    for t in store.tasks_for_goal(gid):
+        counts[t.status] = counts.get(t.status, 0) + 1
+    verdict, score, rounds, saves = None, 0, 0, 0
+    for e in store.events(gid):
+        k = e["kind"]
+        if k == "verify_run":
+            rounds += 1
+            p = _event_payload(e)
+            verdict = "pass" if (p and p.get("passed")) else "fail"
+            if p:
+                score = int(p.get("score", 0))
+        if k in _BOUNDARY_KINDS:
+            saves += 1
+    if g["status"] == "done":
+        verdict = "pass"
+    total = sum(counts.values())
+    return {"id": gid, "goal": goal_text, "status": g["status"],
+            "running": counts.get("running", 0), "done": counts.get("done", 0),
+            "failed": counts.get("failed", 0), "total": total, "verdict": verdict,
+            "score": score, "rounds": rounds, "saves": saves,
+            "updated_at": g["updated_at"]}
+
+
+def fleet_snapshot(store: Any) -> list:
+    """All runs, newest-updated first — the control-plane fleet view feed."""
+    rows = list(store.list_goals())
+    rows.sort(key=lambda g: g["updated_at"], reverse=True)
+    return [_run_summary(store, g) for g in rows]
 
 
 INDEX_HTML = r"""<!doctype html>
@@ -54,7 +96,7 @@ INDEX_HTML = r"""<!doctype html>
 </style></head><body>
 <canvas id="gl"></canvas>
 <canvas id="c"></canvas>
-<div id="hud"><div><b style="color:#e2e8f0">loophole</b> <span class="tag">— THE FORGE</span></div>
+<div id="hud"><div><a href="/fleet" style="color:#64748b;text-decoration:none;pointer-events:auto">← fleet</a> &nbsp;<b style="color:#e2e8f0">loophole</b> <span class="tag">— THE FORGE</span></div>
 <div id="status" class="tag"></div></div>
 <script>
 const Q=new URLSearchParams(location.search),GOAL=Q.get('goal')||'';
@@ -154,7 +196,61 @@ draw();
 """
 
 
-def make_handler(store: Any, goal_id: str):
+FLEET_HTML = r"""<!doctype html>
+<html><head><meta charset="utf-8"><title>loophole — FLEET</title>
+<style>
+  :root{--bg:#0a0e14}
+  html,body{margin:0;min-height:100%;background:var(--bg);color:#cbd5e1;
+    font:14px ui-monospace,SFMono-Regular,Menlo,monospace}
+  header{padding:18px 22px;display:flex;justify-content:space-between;align-items:baseline}
+  h1{font-size:18px;margin:0;color:#e2e8f0}.tag{color:#64748b}
+  #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+    gap:14px;padding:0 22px 28px}
+  .card{background:#0f1620;border:1px solid #1e293b;border-left-width:5px;border-radius:10px;
+    padding:14px 16px;cursor:pointer;transition:transform .08s,box-shadow .15s}
+  .card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .goal{color:#e2e8f0;font-size:14px;margin:0 0 10px;line-height:1.35;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .row{display:flex;justify-content:space-between;color:#94a3b8;font-size:12px;margin-top:6px}
+  .pill{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700}
+  .bar{height:6px;background:#1e293b;border-radius:4px;overflow:hidden;margin:8px 0 4px}
+  .bar>i{display:block;height:100%;background:#22c55e}
+  .empty{color:#475569;padding:0 22px}
+  .verd{font-weight:700}
+</style></head><body>
+<header><h1>loophole <span class="tag">— FLEET</span></h1>
+  <span class="tag" id="count"></span></header>
+<div id="grid"></div><div id="empty" class="empty"></div>
+<script>
+const C={running:'#f59e0b',done:'#22c55e',failed:'#ef4444',paused:'#64748b'};
+function pct(d,t){return t?Math.round(100*d/t):0;}
+function card(r){
+  const col=C[r.status]||'#475569';
+  const verd=r.status==='done'?'✓ DONE':(r.verdict==='pass'?'✓ pass':(r.verdict==='fail'?'✗ reject':'…'));
+  const vc=r.verdict==='pass'||r.status==='done'?'#22c55e':(r.verdict==='fail'?'#ef4444':'#64748b');
+  const d=document.createElement('div');d.className='card';d.style.borderLeftColor=col;
+  d.onclick=()=>location.href='/run?goal='+encodeURIComponent(r.id);
+  d.innerHTML=
+    '<p class="goal">'+esc(r.goal||'(no goal)')+'</p>'+
+    '<div class="row"><span class="pill" style="background:'+col+'22;color:'+col+'">'+r.status+'</span>'+
+      '<span class="verd" style="color:'+vc+'">VERIFY GATE '+verd+'</span></div>'+
+    '<div class="bar"><i style="width:'+pct(r.done,r.total)+'%;background:'+col+'"></i></div>'+
+    '<div class="row"><span>'+r.done+'/'+r.total+' merged · '+r.running+' running · '+r.failed+' failed</span>'+
+      '<span>⛨ '+r.saves+' · r'+r.rounds+'</span></div>'+
+    '<div class="row tag"><span>'+r.id+'</span><span>score '+r.score+'</span></div>';
+  return d;}
+function esc(s){const e=document.createElement('div');e.textContent=s;return e.innerHTML;}
+async function refresh(){try{const r=await fetch('/api/fleet');if(!r.ok)return;const fleet=await r.json();
+  const grid=document.getElementById('grid');grid.innerHTML='';
+  document.getElementById('count').textContent=fleet.length+' run'+(fleet.length===1?'':'s');
+  document.getElementById('empty').textContent=fleet.length?'':'no runs yet — start one with `loophole run`';
+  fleet.forEach(r=>grid.appendChild(card(r)));}catch(e){}finally{setTimeout(refresh,1500);}}
+refresh();
+</script></body></html>
+"""
+
+
+def make_handler(store: Any, default_goal: Optional[str] = None):
     class _Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):  # keep the console quiet
             pass
@@ -170,27 +266,41 @@ def make_handler(store: Any, goal_id: str):
             except BrokenPipeError:
                 pass
 
+        def _goal(self):
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            return (q.get("goal", [None])[0]) or default_goal
+
         def do_GET(self):
             from urllib.parse import urlparse
             path = urlparse(self.path).path
             if path in ("/", "/index.html"):
+                # `loophole serve <goal>` opens that run; bare `serve` opens the fleet.
+                page = INDEX_HTML if default_goal else FLEET_HTML
+                self._send(200, "text/html; charset=utf-8", page.encode("utf-8"))
+            elif path == "/fleet":
+                self._send(200, "text/html; charset=utf-8", FLEET_HTML.encode("utf-8"))
+            elif path == "/run":
                 self._send(200, "text/html; charset=utf-8", INDEX_HTML.encode("utf-8"))
+            elif path == "/api/fleet":
+                self._send(200, "application/json",
+                           json.dumps(fleet_snapshot(store)).encode("utf-8"))
             elif path == "/api/state":
-                snap = build_snapshot(store, goal_id)
+                snap = build_snapshot(store, self._goal()) if self._goal() else None
                 if snap is None:
                     self._send(404, "application/json", b'{"error":"no such goal"}')
                 else:
                     self._send(200, "application/json", json.dumps(snap).encode("utf-8"))
             elif path == "/events":
-                self._stream_events()
+                self._stream_events(self._goal())
             else:
                 self._send(404, "text/plain", b"not found")
 
-        def _stream_events(self, interval: float = 0.7, max_ticks: int = 0):
+        def _stream_events(self, goal_id, interval: float = 0.7, max_ticks: int = 0):
             """Server-Sent Events: push the full snapshot each tick (simple + robust;
             the page just replaces its state). Stops when the client disconnects.
             max_ticks>0 bounds the loop (used by tests)."""
-            if build_snapshot(store, goal_id) is None:
+            if not goal_id or build_snapshot(store, goal_id) is None:
                 self._send(404, "text/plain", b"no such goal")
                 return
             self.send_response(200)
@@ -216,15 +326,18 @@ def make_handler(store: Any, goal_id: str):
     return _Handler
 
 
-def make_server(store: Any, goal_id: str, host: str = "127.0.0.1", port: int = 8765):
-    return http.server.ThreadingHTTPServer((host, port), make_handler(store, goal_id))
+def make_server(store: Any, default_goal: Optional[str] = None,
+                host: str = "127.0.0.1", port: int = 8765):
+    return http.server.ThreadingHTTPServer((host, port), make_handler(store, default_goal))
 
 
-def serve(store: Any, goal_id: str, host: str = "127.0.0.1", port: int = 8765,
-          open_browser: bool = True) -> None:
+def serve(store: Any, goal_id: Optional[str] = None, host: str = "127.0.0.1",
+          port: int = 8765, open_browser: bool = True) -> None:
+    """Serve the fleet (no goal_id) or a single run's Forge (goal_id pins `/`)."""
     srv = make_server(store, goal_id, host, port)
     url = "http://{}:{}/".format(host, srv.server_address[1])
-    print("loophole serve → " + url + "   (Ctrl-C to stop)")
+    label = "FLEET" if not goal_id else "THE FORGE"
+    print("loophole serve ({}) → {}   (Ctrl-C to stop)".format(label, url))
     if open_browser:
         try:
             import webbrowser

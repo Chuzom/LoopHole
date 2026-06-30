@@ -95,3 +95,57 @@ def test_sse_events_stream():
         srv.shutdown()
         srv.server_close()
         store.close()
+
+
+def _store_with_two_runs():
+    import tempfile, os
+    d = tempfile.mkdtemp(prefix="loophole_fleet_")
+    store = Store(os.path.join(d, "s.db"))
+    g1 = store.create_goal(GoalContract(goal="run one", verifiers=[
+        Verifier(kind=VerifierKind.HARD, command="true")]).to_json(), "/ws1")
+    store.add_task(g1, "a", task_id="a1"); store.set_task_status("a1", "done", g1)
+    store.log("verify_run", goal_id=g1, payload={"passed": True, "score": 1000})
+    store.set_goal_status(g1, "done")
+    g2 = store.create_goal(GoalContract(goal="run two", verifiers=[
+        Verifier(kind=VerifierKind.HARD, command="true")]).to_json(), "/ws2")
+    store.add_task(g2, "b", task_id="b1"); store.set_task_status("b1", "running", g2)
+    store.log("write_glob_violation", goal_id=g2, payload={"violations": ["x"]})
+    return store, g1, g2
+
+
+def test_fleet_snapshot_summaries():
+    from loophole.serve import fleet_snapshot
+    store, g1, g2 = _store_with_two_runs()
+    fleet = fleet_snapshot(store)
+    assert len(fleet) == 2
+    by = {f["id"]: f for f in fleet}
+    assert by[g1]["status"] == "done" and by[g1]["verdict"] == "pass" and by[g1]["done"] == 1
+    assert by[g2]["status"] == "running" and by[g2]["running"] == 1 and by[g2]["saves"] == 1
+    store.close()
+
+
+def test_http_fleet_and_run_routes():
+    store, g1, g2 = _store_with_two_runs()
+    srv = make_server(store)               # no default goal -> '/' is the fleet
+    th = threading.Thread(target=srv.serve_forever, daemon=True); th.start()
+    try:
+        base = "http://127.0.0.1:{}".format(srv.server_address[1])
+        fleet_html = urllib.request.urlopen(base + "/", timeout=5).read().decode()
+        assert "FLEET" in fleet_html and "/api/fleet" in fleet_html
+
+        fleet = json.loads(urllib.request.urlopen(base + "/api/fleet", timeout=5).read())
+        assert {f["id"] for f in fleet} == {g1, g2}
+
+        run_html = urllib.request.urlopen(base + "/run?goal=" + g1, timeout=5).read().decode()
+        assert "VERIFY GATE" in run_html
+        st = json.loads(urllib.request.urlopen(base + "/api/state?goal=" + g2, timeout=5).read())
+        assert st["goal"] == "run two"
+
+        # no goal + no default -> 404
+        try:
+            urllib.request.urlopen(base + "/api/state", timeout=5)
+            assert False, "expected 404"
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
+    finally:
+        srv.shutdown(); srv.server_close(); store.close()

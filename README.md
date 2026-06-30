@@ -110,7 +110,8 @@ loophole run --contract loophole.json --executor-command 'claude -p {task}'  # B
 loophole run "<goal>" --protect "tests/**" --expect-test-delta 0   # lock the suite
 loophole contract validate loophole.json        # validate / show a contract (path or URL)
 loophole run "<goal>" --watch                    # live terminal view — THE FORGE
-loophole serve [<goal-id>]                        # live WEB view of a run — THE FORGE
+loophole serve                                    # live web FLEET — all runs, click to drill in
+loophole serve <goal-id>                          # live web Forge for one run
 loophole demo                                     # the 30s 'can't-fake-done' demo (no LLM)
 loophole audit <goal-id>                         # full audit trail (the trust artifact)
 loophole runs                                    # list past runs
