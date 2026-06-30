@@ -40,6 +40,21 @@ def main() -> None:
 
 
 @main.command()
+@click.option("--slow", is_flag=True, help="Pause between acts for a dramatic pace.")
+def demo(slow: bool) -> None:
+    """Run the 30-second 'can't-fake-done' demo — no LLM, fully deterministic.
+
+    A naive agent claims done on buggy code; loophole refuses (the verifier fails);
+    after the bug is fixed, loophole accepts. The clearest one-command proof of the
+    whole idea.
+    """
+    from .demo import run_demo
+    buggy_ok, fixed_ok = run_demo(verbose=True, pause=0.9 if slow else 0.0)
+    # exit non-zero only if the invariant is somehow violated (defensive)
+    sys.exit(0 if (not buggy_ok and fixed_ok) else 1)
+
+
+@main.command()
 @click.option("--path", "repo", default=".", help="Repo to inspect.")
 @click.option("--force", is_flag=True, help="Overwrite an existing loophole.json.")
 @click.option("--template", "template", default=None,
