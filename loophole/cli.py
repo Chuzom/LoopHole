@@ -12,6 +12,7 @@ import click
 from . import __version__
 from .budget import Budget, estimate as estimate_cost
 from .contract import GoalContract, Verifier, VerifierKind, ContractError
+from . import registry
 from .initializer import (CONTRACT_FILENAME, detect_contract, write_starter,
                           load_contract, load_template_raw,
                           list_templates as _list_templates)
@@ -82,7 +83,7 @@ def init(repo: str, force: bool, template: Optional[str], list_templates: bool,
             "{} already exists (use --force to overwrite)".format(CONTRACT_FILENAME))
     if template:
         try:
-            raw = load_template_raw(template)
+            raw = registry.resolve(template)   # bundled template OR a registry entry
         except ValueError as e:
             raise click.ClickException(str(e))
         with open(out, "w", encoding="utf-8") as f:
@@ -174,6 +175,62 @@ def executor_list() -> None:
     for name, cmd in _EXECUTOR_ADAPTERS.items():
         click.echo("{:14} loophole run --executor-command '{}'".format(name, cmd))
     click.echo("\n{task} is replaced with the (shell-quoted) task description.")
+
+
+@main.group("registry")
+def registry_grp() -> None:
+    """Shareable contract registry — named, reusable acceptance specs."""
+
+
+@registry_grp.command("list")
+def registry_list() -> None:
+    """List resolvable contracts (bundled templates + your local registry)."""
+    entries = registry.list_entries()
+    if not entries:
+        click.echo("(no entries)")
+        return
+    for e in entries:
+        tag = "bundled" if e["source"] == "bundled" else click.style("local", fg="cyan")
+        click.echo("{:28} [{}]".format(e["name"], tag))
+    click.echo("\nuse: loophole run --contract <name>   or   loophole init --template <name>")
+
+
+@registry_grp.command("add")
+@click.argument("name")
+@click.argument("src")
+def registry_add(name: str, src: str) -> None:
+    """Pull a contract from a PATH or URL into your local registry under NAME."""
+    try:
+        dest = registry.add(name, src)
+    except (OSError, ValueError) as e:
+        raise click.ClickException("could not add '{}': {}".format(name, e))
+    click.echo("added " + click.style(name, fg="green") + " → " + dest)
+
+
+@registry_grp.command("show")
+@click.argument("name")
+def registry_show(name: str) -> None:
+    """Pretty-print a registry entry (resolves bundled or local)."""
+    try:
+        c = registry.get_contract(name)
+    except (OSError, ValueError) as e:
+        raise click.ClickException(str(e))
+    click.echo("Goal: " + c.goal)
+    for v in c.verifiers:
+        click.echo("  - [{}] {}".format(v.kind.value, (v.command or v.rubric or v.prompt or "")[:80]))
+    click.echo("allowed_writes:  " + ", ".join(c.allowed_writes))
+    click.echo("protected_paths: " + ", ".join(c.all_protected_paths or ["(none)"]))
+
+
+@registry_grp.command("remove")
+@click.argument("name")
+def registry_remove(name: str) -> None:
+    """Remove a LOCAL registry entry (bundled templates are read-only)."""
+    if registry.remove(name):
+        click.echo("removed " + name)
+    else:
+        raise click.ClickException(
+            "no local entry '{}' (bundled templates can't be removed)".format(name))
 
 
 @executor.command("test")
@@ -273,7 +330,7 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
 
     if contract_path:
         try:
-            contract = load_contract(contract_path)
+            contract = registry.load_ref(contract_path)   # file, URL, or registry name
         except (OSError, ValueError) as e:
             raise click.ClickException(
                 "could not load contract {}: {}".format(contract_path, e))

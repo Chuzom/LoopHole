@@ -109,6 +109,9 @@ loophole run "<goal>" --verify "pytest -q" [--workspace DIR]
 loophole run --contract loophole.json --executor-command 'claude -p {task}'  # BYO agent
 loophole run "<goal>" --protect "tests/**" --expect-test-delta 0   # lock the suite
 loophole contract validate loophole.json        # validate / show a contract (path or URL)
+loophole registry list                            # named, shareable acceptance specs
+loophole registry add team-default ./loophole.json   # publish a spec; reuse by name
+loophole run --contract team-default              # run a registry spec by name
 loophole run "<goal>" --watch                    # live terminal view — THE FORGE
 loophole serve                                    # live web FLEET — all runs, click to drill in
 loophole serve <goal-id>                          # live web Forge for one run

@@ -52,9 +52,9 @@ def test_cli_init_from_template():
         # the frozen-tests template protects tests/**
         assert "tests/**" in data["protected_paths"]
 
-        # unknown template fails cleanly with the available list
+        # unknown template fails cleanly (now resolved via the registry)
         r2 = runner.invoke(main, ["init", "--template", "nope", "--force"])
-        assert r2.exit_code != 0 and "python-lib" in r2.output
+        assert r2.exit_code != 0 and "registry list" in r2.output
 
 
 def test_cli_list_templates():
