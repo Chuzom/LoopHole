@@ -109,6 +109,9 @@ loophole run "<goal>" --verify "pytest -q" [--workspace DIR]
 loophole run --contract loophole.json --executor-command 'claude -p {task}'  # BYO agent
 loophole run "<goal>" --protect "tests/**" --expect-test-delta 0   # lock the suite
 loophole contract validate loophole.json        # validate / show a contract (path or URL)
+loophole run "<goal>" --watch                    # live terminal view — THE FORGE
+loophole serve [<goal-id>]                        # live WEB view of a run — THE FORGE
+loophole demo                                     # the 30s 'can't-fake-done' demo (no LLM)
 loophole audit <goal-id>                         # full audit trail (the trust artifact)
 loophole runs                                    # list past runs
 loophole estimate "<goal>" --max-rounds 10     # dry-run cost prediction

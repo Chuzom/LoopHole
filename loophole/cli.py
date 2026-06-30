@@ -405,6 +405,36 @@ def watch(goal_id: str, db: Optional[str], once: bool, interval: float) -> None:
 
 
 @main.command()
+@click.argument("goal_id", required=False)
+@click.option("--db", default=None)
+@click.option("--host", default="127.0.0.1", help="Bind host.")
+@click.option("--port", default=8765, type=int, help="Port (0 = pick a free one).")
+@click.option("--no-browser", is_flag=True, help="Don't auto-open a browser.")
+def serve(goal_id: Optional[str], db: Optional[str], host: str, port: int,
+          no_browser: bool) -> None:
+    """Live WEB view of a run — THE FORGE in the browser (Phase 1).
+
+    With no GOAL_ID, serves the most recent run. Run a goal in one terminal and
+    `loophole serve` in another to watch it live.
+    """
+    from .serve import serve as _serve
+    store = Store(db or _default_db())
+    if not goal_id:
+        goals = store.list_goals()
+        if not goals:
+            store.close()
+            raise click.ClickException("no runs yet — start one with `loophole run`")
+        goal_id = max(goals, key=lambda g: g["created_at"])["id"]
+    if not store.get_goal(goal_id):
+        store.close()
+        raise click.ClickException("no such goal: " + goal_id)
+    try:
+        _serve(store, goal_id, host=host, port=port, open_browser=not no_browser)
+    finally:
+        store.close()
+
+
+@main.command()
 @click.argument("goal_id")
 @click.option("--db", default=None)
 def audit(goal_id: str, db: Optional[str]) -> None:
