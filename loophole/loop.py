@@ -17,6 +17,7 @@ cap (council critique E) are the right model here, not unbounded async fanout.
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import os
 import shutil
 import tempfile
@@ -112,11 +113,32 @@ def _reset_orphan_running(store: Store, goal_id: str) -> int:
     return len(orphans)
 
 
+def _serialize_hard(value) -> str:
+    """Serialize the cached deterministic-verify tuple for the persistent cache."""
+    results, metrics, hard_pass, violations = value
+    return json.dumps({
+        "results": [{"name": r.name, "passed": r.passed, "metrics": r.metrics,
+                     "failures": r.failures, "output": r.output,
+                     "abstained": getattr(r, "abstained", False)} for r in results],
+        "metrics": metrics, "hard_pass": hard_pass, "violations": violations})
+
+
+def _deserialize_hard(payload: str):
+    d = json.loads(payload)
+    results = [VerifierResult(name=x["name"], passed=x["passed"],
+                              metrics=x.get("metrics", {}), failures=x.get("failures", []),
+                              output=x.get("output", ""), abstained=x.get("abstained", False))
+               for x in d.get("results", [])]
+    return (results, d.get("metrics", {}), bool(d.get("hard_pass", True)),
+            list(d.get("violations", [])))
+
+
 def verify_candidate(contract: GoalContract, integ: Integration,
                      baseline_total: Optional[float],
                      base_commit: Optional[str] = None,
                      soft_judge: Optional[Provider] = None,
-                     gate_only: bool = False) -> VerifyVerdict:
+                     gate_only: bool = False,
+                     store: "Optional[Store]" = None) -> VerifyVerdict:
     """Verify from a FRESH checkout of the integration HEAD (council fix B).
 
     base_commit: the goal's ORIGINAL start commit. The protected-path boundary
@@ -139,15 +161,29 @@ def verify_candidate(contract: GoalContract, integ: Integration,
         # duplicate where a merge gate verifies tree T and the round-level verify
         # re-verifies the same T, and skips re-running a suite on an unchanged tree.
         tree = integ.tree_sha()
-        cache = getattr(integ, "_hard_cache", None)
-        if cache is None:
-            cache = {}
+        # In-memory cache (per-run); ARCH-5 adds a persistent store-backed layer so
+        # the cache survives resume and is LRU-bounded (the in-memory dict alone was
+        # cold on every fresh Integration and grew unbounded).
+        mem = getattr(integ, "_hard_cache", None)
+        if mem is None:
+            mem = {}
             try:
-                integ._hard_cache = cache
+                integ._hard_cache = mem
             except Exception:
-                cache = None
-        key = (tree, base_commit, baseline_total)
-        cached = cache.get(key) if (cache is not None and tree) else None
+                mem = None
+        mkey = (tree, base_commit, baseline_total)
+        skey = "{}|{}|{}".format(tree, base_commit, baseline_total) if tree else None
+
+        cached = None
+        if tree:
+            if mem is not None and mkey in mem:
+                cached = mem[mkey]
+            elif store is not None and skey is not None:
+                payload = store.get_verify_cache(skey)
+                if payload:
+                    cached = _deserialize_hard(payload)
+                    if mem is not None:
+                        mem[mkey] = cached  # warm the in-memory layer
         if cached is not None:
             hard_results, all_metrics, hard_pass, violations = cached
         else:
@@ -170,8 +206,12 @@ def verify_candidate(contract: GoalContract, integ: Integration,
                 integ.fresh_checkout(base, start)
                 violations += check_boundary(contract, base, cand)
             violations += check_test_count(contract, all_metrics, baseline_total)
-            if cache is not None and tree:
-                cache[key] = (hard_results, dict(all_metrics), hard_pass, list(violations))
+            if tree:
+                value = (hard_results, dict(all_metrics), hard_pass, list(violations))
+                if mem is not None:
+                    mem[mkey] = value
+                if store is not None and skey is not None:
+                    store.put_verify_cache(skey, _serialize_hard(value))
 
         # Fresh list so soft-verifier appends never mutate the cached hard results.
         results: List[VerifierResult] = list(hard_results)
@@ -352,7 +392,7 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
         # ---- verify -------------------------------------------------------
         verdict = verify_candidate(contract, integ, baseline_total,
                                    base_commit=base_commit,
-                                   soft_judge=roles.critic)
+                                   soft_judge=roles.critic, store=store)
         store.log("verify_run", goal_id=goal_id,
                   payload={"passed": verdict.passed, "score": verdict.metric_score,
                            "violations": verdict.boundary_violations})
@@ -504,7 +544,8 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
                 if integ.is_git and (contract.hard_verifiers or contract.all_protected_paths):
                     try:
                         gate = verify_candidate(contract, integ, baseline_total,
-                                                base_commit=base_commit, gate_only=True)
+                                                base_commit=base_commit, gate_only=True,
+                                                store=store)
                     except Exception as e:
                         # Never leave a merged-but-unverified HEAD on a gate error:
                         # roll back so a failure can't poison downstream worktrees.

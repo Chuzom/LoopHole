@@ -57,6 +57,12 @@ CREATE TABLE IF NOT EXISTS events (
     ts       REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS verify_cache (
+    key      TEXT PRIMARY KEY,        -- tree_sha | base_commit | baseline
+    payload  TEXT NOT NULL,           -- JSON: deterministic verify result
+    ts       REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_goal ON tasks(goal_id);
 CREATE INDEX IF NOT EXISTS idx_events_goal ON events(goal_id);
 """
@@ -141,6 +147,28 @@ class Store:
         with self._lock:
             return list(self._conn.execute(
                 "SELECT * FROM events WHERE goal_id=? ORDER BY seq", (goal_id,)))
+
+    # ---- verify cache (ARCH-5: persistent so it survives resume; LRU-bounded) ----
+    def get_verify_cache(self, key: str) -> Optional[str]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT payload FROM verify_cache WHERE key=?", (key,)).fetchone()
+            if row is None:
+                return None
+            self._conn.execute("UPDATE verify_cache SET ts=? WHERE key=?", (_now(), key))
+            self._conn.commit()
+            return row["payload"]
+
+    def put_verify_cache(self, key: str, payload: str, max_entries: int = 50) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO verify_cache(key, payload, ts) VALUES (?,?,?)",
+                (key, payload, _now()))
+            # LRU eviction: keep only the most-recently-used max_entries rows
+            self._conn.execute(
+                "DELETE FROM verify_cache WHERE key NOT IN "
+                "(SELECT key FROM verify_cache ORDER BY ts DESC LIMIT ?)", (max_entries,))
+            self._conn.commit()
 
     # ---- goals -----------------------------------------------------------
     def create_goal(self, contract_json: str, workspace: str,
