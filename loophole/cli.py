@@ -16,6 +16,7 @@ from .initializer import (CONTRACT_FILENAME, detect_contract, write_starter,
                           load_contract, load_template_raw,
                           list_templates as _list_templates)
 from .audit import render_audit, render_runs
+from .watch import render_frame, run_watch
 from .loop import Roles, LoopConfig, run_goal
 from .provider import make_provider, ProviderError
 from .report import residual_risk_report
@@ -255,6 +256,25 @@ def status(goal_id: str, db: Optional[str]) -> None:
         click.echo("  " + click.style("[{}]".format(t.status), fg=color) +
                    " " + t.description[:70] + dep)
     store.close()
+
+
+@main.command()
+@click.argument("goal_id")
+@click.option("--db", default=None)
+@click.option("--once", is_flag=True, help="Render a single frame and exit.")
+@click.option("--interval", default=1.0, type=float, help="Refresh seconds.")
+def watch(goal_id: str, db: Optional[str], once: bool, interval: float) -> None:
+    """Live view of the swarm — THE FORGE: agents, merge-train, and the VERIFY GATE."""
+    store = Store(db or _default_db())
+    if not store.get_goal(goal_id):
+        store.close()
+        raise click.ClickException("no such goal: " + goal_id)
+    try:
+        run_watch(store, goal_id, interval=interval, once=once)
+    except KeyboardInterrupt:
+        click.echo("")
+    finally:
+        store.close()
 
 
 @main.command()
