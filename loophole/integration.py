@@ -93,6 +93,19 @@ class Integration:
         _git(["worktree", "add", "-q", "-f", "-b", branch, path, base], self.workspace)
         return path
 
+    def stage_changes(self, task_id: str) -> List[str]:
+        """Stage all worktree changes and return the changed repo-relative paths.
+
+        Used to enforce the write allowlist BEFORE committing (S5), so an
+        out-of-bounds change never reaches a commit or the merge-train.
+        """
+        if not self.is_git:
+            return []
+        path = os.path.join(self._wt_root, task_id)
+        _git(["add", "-A"], path)
+        _, out = _git(["diff", "--cached", "--name-only"], path)
+        return [ln.strip() for ln in out.splitlines() if ln.strip()]
+
     def commit_worktree(self, task_id: str, message: str) -> Optional[str]:
         """Commit all changes in the task's worktree. Returns the commit sha."""
         if not self.is_git:

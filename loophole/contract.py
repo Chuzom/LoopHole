@@ -8,7 +8,9 @@ boundary" — not "an LLM felt the goal was achieved".
 
 from __future__ import annotations
 
+import fnmatch
 import json
+import os
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any, List, Optional
@@ -114,6 +116,32 @@ class GoalContract:
     @property
     def human_verifiers(self) -> List[Verifier]:
         return [v for v in self.verifiers if v.kind == VerifierKind.HUMAN]
+
+    def write_violations(self, changed: List[str],
+                         task_writes: Optional[List[str]] = None) -> List[str]:
+        """S5: enforce the write allowlist at commit time.
+
+        The executor is *told* to stay within its declared writes; this MAKES it
+        true. A changed path is a violation if no allow glob matches it, or if it
+        matches a protected path. ``task_writes`` (the task's own declared writes)
+        narrows the contract-wide ``allowed_writes``; an empty task list falls back
+        to the contract allowlist (default ['**'] = unrestricted). Glob matching
+        mirrors the verifier boundary: match on the full repo-relative path or the
+        basename.
+        """
+        allow = [g for g in (task_writes or self.allowed_writes or ["**"]) if g] or ["**"]
+        deny = self.all_protected_paths
+        out: List[str] = []
+        for rel in changed:
+            rel = rel.strip()
+            if not rel:
+                continue
+            base = os.path.basename(rel)
+            if not any(fnmatch.fnmatch(rel, g) or fnmatch.fnmatch(base, g) for g in allow):
+                out.append("{} is outside allowed writes {}".format(rel, allow))
+            elif any(fnmatch.fnmatch(rel, d) or fnmatch.fnmatch(base, d) for d in deny):
+                out.append("{} is a protected path".format(rel))
+        return out
 
     @property
     def all_protected_paths(self) -> List[str]:

@@ -281,7 +281,7 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
                 store.set_task_status(t.id, "ready", goal_id)
             batch = admit_parallel(rdy, cfg.max_parallel)
             say("round {}: executing {} task(s)".format(rnd + 1, len(batch)))
-            _run_batch(store, integ, roles, budget, cfg, goal_id, batch, say)
+            _run_batch(store, integ, roles, budget, cfg, goal_id, batch, contract, say)
             # N4: unblock the DAG so a permanently-failed task can't wedge the goal
             _abandon_unrunnable(store, goal_id, say)
 
@@ -369,7 +369,7 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
 
 def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
                cfg: LoopConfig, goal_id: str, batch: List[Task],
-               say: Callable[[str], None]) -> None:
+               contract: GoalContract, say: Callable[[str], None]) -> None:
     def work(task: Task) -> None:
         try:
             _work_inner(task)
@@ -398,9 +398,25 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
                 _fail_task(store, integ, task, goal_id, cfg, attempts, res.summary, say)
                 return
             with integ.git_lock:
+                # S5: stage and vet the change set against the write allowlist
+                # BEFORE committing — an out-of-bounds write never reaches the
+                # commit or the merge-train. The executor is asked to stay within
+                # its writes; this enforces it.
+                changed = integ.stage_changes(wid)
+                if not changed and integ.is_git:
+                    # executor reported done but changed nothing — reject false claim
+                    _fail_task(store, integ, task, goal_id, cfg, attempts,
+                               "reported complete but made no file changes", say)
+                    return
+                wv = contract.write_violations(changed, task.writes)
+                if wv:
+                    store.log("write_glob_violation", goal_id=goal_id, task_id=task.id,
+                              payload={"violations": wv})
+                    _fail_task(store, integ, task, goal_id, cfg, attempts,
+                               "write-allowlist violation (S5): " + "; ".join(wv[:5]), say)
+                    return
                 sha = integ.commit_worktree(wid, "loophole task: " + task.description[:60])
                 if sha is None and integ.is_git:
-                    # executor reported done but changed nothing — reject false claim
                     _fail_task(store, integ, task, goal_id, cfg, attempts,
                                "reported complete but made no file changes", say)
                     return
