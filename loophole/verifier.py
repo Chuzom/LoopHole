@@ -185,7 +185,9 @@ def _snapshot(cand_dir: str, max_files: int = 25, max_bytes: int = 20000) -> str
                 text = content.decode("utf-8")
             except UnicodeDecodeError:
                 continue
-            chunk = text[: min(2000, budget)]
+            # SEC-3: neutralize any attempt to forge the untrusted-snapshot fence
+            # (<<<...>>>) so a candidate file can't close it early and inject a verdict.
+            chunk = text[: min(2000, budget)].replace("<<<", "[[[").replace(">>>", "]]]")
             budget -= len(chunk)
             parts.append("--- {} ---\n{}".format(rel, chunk))
     return "\n\n".join(parts) or "(no readable files)"

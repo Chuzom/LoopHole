@@ -69,7 +69,12 @@ class SandboxPolicy:
                                   # system dirs + the worktree (blocks ~/.ssh etc.)
 
 
-_SECRET_RE = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API)", re.I)
+_SECRET_RE = re.compile(
+    r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API|DSN|PEM|PRIVATE|CERT|PASSPHRASE)",
+    re.I)
+# Credentials embedded in a connection string (e.g. postgres://user:pass@host) —
+# caught by VALUE so we don't have to blanket-drop benign *_URL vars (SEC-4).
+_CRED_URL_RE = re.compile(r"://[^@\s/]+:[^@\s/]+@")
 
 
 def scrub_env(extra: Dict[str, str]) -> Dict[str, str]:
@@ -81,7 +86,8 @@ def scrub_env(extra: Dict[str, str]) -> Dict[str, str]:
     We drop anything that looks like a secret and keep the rest (PATH, HOME…).
     Defence-in-depth alongside the OS sandbox's network deny.
     """
-    safe = {k: val for k, val in os.environ.items() if not _SECRET_RE.search(k)}
+    safe = {k: val for k, val in os.environ.items()
+            if not _SECRET_RE.search(k) and not _CRED_URL_RE.search(val or "")}
     safe.update(extra or {})
     return safe
 

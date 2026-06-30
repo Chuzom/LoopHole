@@ -336,9 +336,13 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
         tasks = store.tasks_for_goal(goal_id)
         rdy = ready_tasks(tasks)
         if rdy:
-            for t in rdy:
-                store.set_task_status(t.id, "ready", goal_id)
+            # ARCH-2: only the ADMITTED batch becomes 'ready'. Promoting all of rdy
+            # would leave non-admitted tasks stuck 'ready' — invisible to ready_tasks
+            # (which only promotes 'pending') yet counted active by need_plan, so they
+            # were silently orphaned. Leaving them 'pending' keeps them schedulable.
             batch = admit_parallel(rdy, cfg.max_parallel)
+            for t in batch:
+                store.set_task_status(t.id, "ready", goal_id)
             say("round {}: executing {} task(s)".format(rnd + 1, len(batch)))
             _run_batch(store, integ, roles, budget, cfg, goal_id, batch, contract,
                        baseline_total, base_commit, say)
