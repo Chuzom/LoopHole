@@ -138,7 +138,8 @@ def verify_candidate(contract: GoalContract, integ: Integration,
                      base_commit: Optional[str] = None,
                      soft_judge: Optional[Provider] = None,
                      gate_only: bool = False,
-                     store: "Optional[Store]" = None) -> VerifyVerdict:
+                     store: "Optional[Store]" = None,
+                     pinned_commit: "Optional[str]" = None) -> VerifyVerdict:
     """Verify from a FRESH checkout of the integration HEAD (council fix B).
 
     base_commit: the goal's ORIGINAL start commit. The protected-path boundary
@@ -154,13 +155,16 @@ def verify_candidate(contract: GoalContract, integ: Integration,
     cand = tempfile.mkdtemp(prefix="loophole_cand_")
     base = tempfile.mkdtemp(prefix="loophole_basechk_")
     try:
-        integ.fresh_checkout(cand, integ.head())
+        # ARCH-4: a pinned_commit verifies an off-HEAD merge candidate (so the gate
+        # can verify before HEAD is advanced); otherwise verify live HEAD.
+        checkout_commit = pinned_commit or integ.head()
+        integ.fresh_checkout(cand, checkout_commit)
         # ARCH-2: the deterministic checks (hard verifiers + boundary + test-count)
         # depend only on the candidate TREE (base_commit/baseline are fixed per
         # goal), so memoise them by tree sha. This eliminates the guaranteed
         # duplicate where a merge gate verifies tree T and the round-level verify
         # re-verifies the same T, and skips re-running a suite on an unchanged tree.
-        tree = integ.tree_sha()
+        tree = integ.tree_sha_of(checkout_commit) if checkout_commit else None
         # In-memory cache (per-run); ARCH-5 adds a persistent store-backed layer so
         # the cache survives resume and is LRU-bounded (the in-memory dict alone was
         # cold on every fresh Integration and grew unbounded).
@@ -531,30 +535,32 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
                     _fail_task(store, integ, task, goal_id, cfg, attempts,
                                "reported complete but made no file changes", say)
                     return
-                pre_merge = integ.head()
-                ok, detail = integ.merge_task(wid)
-                if not ok:
-                    _fail_task(store, integ, task, goal_id, cfg, attempts, detail, say)
-                    return
-                # Per-merge gate (R3): re-verify the MERGED HEAD before it is
-                # published. Deterministic checks only (hard verifiers + boundary
-                # + test-count). If the merge verified red, roll HEAD back so a bad
-                # merge never poisons the worktrees that branch off it. This holds
-                # the git lock — the merge-train is serial by design.
-                if integ.is_git and (contract.hard_verifiers or contract.all_protected_paths):
+            # ── Per-merge gate, ARCH-4 stage-on-side-ref ──────────────────────
+            # Build an OFF-HEAD merge candidate, verify it WITHOUT the git lock, and
+            # fast-forward HEAD only after the gate passes. HEAD therefore only ever
+            # advances to a verified-green commit (R3 preserved), AND the slow verify
+            # no longer serializes the merge-train. A failing gate never moved HEAD,
+            # so there is nothing to roll back and downstream is never poisoned.
+            if integ.is_git and (contract.hard_verifiers or contract.all_protected_paths):
+                published = False
+                detail = ""
+                for _attempt in range(4):
+                    with integ.git_lock:
+                        base = integ.head()
+                        candidate = integ.stage_merge(wid, base)
+                    if candidate is None:
+                        _fail_task(store, integ, task, goal_id, cfg, attempts,
+                                   "merge conflict against HEAD", say)
+                        return
                     try:
                         gate = verify_candidate(contract, integ, baseline_total,
                                                 base_commit=base_commit, gate_only=True,
-                                                store=store)
+                                                store=store, pinned_commit=candidate)
                     except Exception as e:
-                        # Never leave a merged-but-unverified HEAD on a gate error:
-                        # roll back so a failure can't poison downstream worktrees.
-                        integ.reset_hard(pre_merge or "HEAD")
                         _fail_task(store, integ, task, goal_id, cfg, attempts,
-                                   "merge gate errored, rolled back: {}".format(e), say)
+                                   "merge gate errored: {}".format(e), say)
                         return
                     if not gate.passed:
-                        integ.reset_hard(pre_merge or "HEAD")
                         store.log("merge_gate_reject", goal_id=goal_id, task_id=task.id,
                                   payload={"failures": gate.failures[:6],
                                            "violations": gate.boundary_violations})
@@ -563,7 +569,23 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
                                    "; ".join((gate.failures + gate.boundary_violations)[:5]),
                                    say)
                         return
-                    integ.mark_green(integ.head())
+                    with integ.git_lock:
+                        if integ.try_publish(candidate, base):
+                            integ.mark_green(integ.head())
+                            published = True
+                            break
+                    detail = "HEAD advanced during verify; re-staging"
+                if not published:
+                    _fail_task(store, integ, task, goal_id, cfg, attempts,
+                               "merge-train contention: " + detail, say)
+                    return
+            elif integ.is_git:
+                # No gate (no hard/protected checks) — plain serialized merge.
+                with integ.git_lock:
+                    ok, detail = integ.merge_task(wid)
+                if not ok:
+                    _fail_task(store, integ, task, goal_id, cfg, attempts, detail, say)
+                    return
             store.update_task(task.id, status="done", result=res.summary,
                               artifact_commit=sha)
             store.log("task_done", goal_id=goal_id, task_id=task.id,

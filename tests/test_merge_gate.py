@@ -126,3 +126,64 @@ def test_reconcile_refuses_when_user_commit_sits_between():
     head = integ.head()
     assert integ.reconcile_head() is None   # mixed history -> hands off entirely
     assert integ.head() == head
+
+
+# ---- ARCH-4: stage-on-side-ref (verify off-HEAD, publish only when green) ----
+
+def _branch_with_change(integ, tid, fname, content="x\n"):
+    wt = integ.make_worktree(tid, base_commit=integ.head())
+    with open(os.path.join(wt, fname), "w") as f:
+        f.write(content)
+    integ.commit_worktree(tid, "add " + fname)
+
+
+def test_stage_merge_does_not_move_head():
+    integ, ws = _repo_with("base")
+    base = integ.head()
+    _branch_with_change(integ, "t1", "feature.txt")
+    candidate = integ.stage_merge("t1", base)
+    assert candidate and candidate != base
+    assert integ.head() == base                     # side-ref staging left HEAD put
+    integ.discard_worktree("t1")
+
+
+def test_stage_verify_publish_happy_path():
+    integ, ws = _repo_with("base")
+    base = integ.head()
+    _branch_with_change(integ, "t1", "feature.txt")
+    candidate = integ.stage_merge("t1", base)
+    contract = GoalContract(goal="x", verifiers=[
+        Verifier(kind=VerifierKind.HARD, command="test -f feature.txt")])
+    v = verify_candidate(contract, integ, None, base_commit=base, gate_only=True,
+                         pinned_commit=candidate)
+    assert v.passed                                  # verified the OFF-HEAD candidate
+    assert integ.try_publish(candidate, base) is True
+    assert integ.head() == candidate
+    assert os.path.exists(os.path.join(ws, "feature.txt"))   # working tree updated
+    integ.discard_worktree("t1")
+
+
+def test_gate_failure_never_moves_head():
+    integ, ws = _repo_with("base")
+    base = integ.head()
+    _branch_with_change(integ, "t2", "x.txt")
+    candidate = integ.stage_merge("t2", base)
+    contract = GoalContract(goal="x", verifiers=[
+        Verifier(kind=VerifierKind.HARD, command="test -f does_not_exist")])
+    v = verify_candidate(contract, integ, None, base_commit=base, gate_only=True,
+                         pinned_commit=candidate)
+    assert not v.passed
+    assert integ.head() == base       # R3 invariant: a red gate never advanced HEAD
+    integ.discard_worktree("t2")
+
+
+def test_try_publish_refuses_when_head_moved():
+    integ, ws = _repo_with("base")
+    base = integ.head()
+    _branch_with_change(integ, "t3", "a.txt")
+    candidate = integ.stage_merge("t3", base)
+    _commit(ws, "loophole task: other", "other.txt", "1")   # HEAD races ahead
+    moved = integ.head()
+    assert integ.try_publish(candidate, base) is False       # base no longer HEAD
+    assert integ.head() == moved                             # publish refused cleanly
+    integ.discard_worktree("t3")

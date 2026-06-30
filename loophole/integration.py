@@ -133,6 +133,55 @@ class Integration:
             return False, "merge conflict: " + out
         return True, "merged"
 
+    # ── ARCH-4: stage-on-side-ref (verify off the lock, publish only when green) ──
+    def _rev(self, ref: str) -> Optional[str]:
+        rc, out = _git(["rev-parse", "--verify", "-q", ref], self.workspace, check=False)
+        out = (out or "").strip()
+        return out if rc == 0 and out else None
+
+    def stage_merge(self, task_id: str, base: str) -> Optional[str]:
+        """Build an OFF-HEAD merge commit of the task branch onto ``base`` without
+        moving HEAD. Returns the candidate commit sha, or None on conflict/error.
+
+        Lets the per-merge gate verify the prospective result without advancing the
+        published HEAD — so a failing gate never poisons what worktrees branch off,
+        and the (slow) verify can run outside the git lock.
+        """
+        if not self.is_git:
+            return None
+        branch = "loophole/" + task_id
+        tip = self._rev(branch)
+        if not tip:
+            return None
+        rc, out = _git(["merge-tree", "--write-tree", base, branch],
+                       self.workspace, check=False)
+        if rc != 0:
+            return None  # merge conflict (rc=1) — task can't merge cleanly onto base
+        tree = (out or "").strip().splitlines()[0].strip() if out else ""
+        if not tree:
+            return None
+        rc, csha = _git(["commit-tree", tree, "-p", base, "-p", tip,
+                         "-m", "loophole merge: " + task_id], self.workspace, check=False)
+        csha = (csha or "").strip()
+        return csha if rc == 0 and csha else None
+
+    def try_publish(self, candidate: str, expected_head: str) -> bool:
+        """Fast-forward HEAD to ``candidate`` IFF HEAD is still ``expected_head``.
+        Returns True on publish, False if HEAD moved (caller re-stages). Caller holds
+        the git lock."""
+        if not self.is_git:
+            return True
+        if self.head() != expected_head:
+            return False
+        rc, _ = _git(["merge", "--ff-only", "-q", candidate], self.workspace, check=False)
+        return rc == 0
+
+    def tree_sha_of(self, commit: str) -> Optional[str]:
+        """Content id of an arbitrary commit's tree (for the verify cache key)."""
+        if not self.is_git:
+            return None
+        return self._rev(commit + "^{tree}")
+
     def reset_hard(self, commit: str) -> None:
         """Roll the integration HEAD back to ``commit`` (R3 merge-gate rollback).
 
