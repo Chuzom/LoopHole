@@ -155,7 +155,7 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
     click.echo()
     click.echo(residual_risk_report(
         contract, outcome.verdict, outcome.status, outcome.rounds,
-        outcome.budget.summary(), outcome.verifier_bypasses))
+        outcome.budget.summary(), outcome.verifier_bypasses, detail=outcome.detail))
     store.close()
     sys.exit(0 if outcome.status == "done" else 1)
 
@@ -237,7 +237,7 @@ def resume(goal_id: str, executor_model: str, planner_model: str, db: Optional[s
     click.echo()
     click.echo(residual_risk_report(contract, outcome.verdict, outcome.status,
                                     outcome.rounds, outcome.budget.summary(),
-                                    outcome.verifier_bypasses))
+                                    outcome.verifier_bypasses, detail=outcome.detail))
     store.close()
     sys.exit(0 if outcome.status == "done" else 1)
 
