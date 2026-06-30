@@ -233,6 +233,34 @@ def registry_remove(name: str) -> None:
             "no local entry '{}' (bundled templates can't be removed)".format(name))
 
 
+@registry_grp.command("add-source")
+@click.argument("url")
+def registry_add_source(url: str) -> None:
+    """Subscribe to a remote index (a URL serving a name→contract manifest)."""
+    registry.add_source(url)
+    click.echo("source added: " + url)
+
+
+@registry_grp.command("remove-source")
+@click.argument("url")
+def registry_remove_source(url: str) -> None:
+    """Unsubscribe from a remote index."""
+    if registry.remove_source(url):
+        click.echo("source removed: " + url)
+    else:
+        raise click.ClickException("not a configured source: " + url)
+
+
+@registry_grp.command("sources")
+def registry_sources() -> None:
+    """List configured remote index sources."""
+    srcs = registry.list_sources()
+    if not srcs:
+        click.echo("(no remote sources — add one with `loophole registry add-source <url>`)")
+    for s in srcs:
+        click.echo(s)
+
+
 @executor.command("test")
 @click.argument("name")
 def executor_test(name: str) -> None:
