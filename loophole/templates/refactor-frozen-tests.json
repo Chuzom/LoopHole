@@ -1,0 +1,14 @@
+{
+  "_help": "Refactor WITHOUT changing behavior: the test suite is frozen (protected) so the agent must preserve it, and the test count may not drop. Edit 'goal', then: loophole run --contract loophole.json",
+  "goal": "TODO: refactor X without changing behavior (e.g. 'extract the parser into its own module')",
+  "verifiers": [
+    {
+      "kind": "hard",
+      "command": "pytest -q",
+      "protected_paths": ["tests/**"],
+      "expected_test_delta": 0
+    }
+  ],
+  "allowed_writes": ["src/**"],
+  "protected_paths": ["tests/**", ".github/workflows/**", "*.lock", "loophole.json"]
+}

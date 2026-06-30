@@ -154,6 +154,41 @@ def write_starter(contract: GoalContract, path: str) -> None:
 
 
 def load_contract(path: str) -> GoalContract:
-    """Load a contract written by ``init`` (ignores the _help key)."""
+    """Load a contract from a local path OR an http(s)/file URL (acceptance-spec-
+    as-code: contracts can be shared). Ignores the _help key."""
+    if path.startswith(("http://", "https://", "file://")):
+        import urllib.request
+        with urllib.request.urlopen(path, timeout=15) as r:   # nosec - operator-supplied
+            raw = r.read().decode("utf-8")
+    else:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read()
+    return GoalContract.from_json(raw)
+
+
+TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
+
+
+def list_templates() -> List[str]:
+    """Names of the bundled starter contracts (without the .json extension)."""
+    try:
+        return sorted(f[:-5] for f in os.listdir(TEMPLATES_DIR) if f.endswith(".json"))
+    except OSError:
+        return []
+
+
+def load_template_raw(name: str) -> str:
+    """Raw JSON of a bundled template, or raise ValueError listing the choices."""
+    path = os.path.join(TEMPLATES_DIR, name + ".json")
+    if not os.path.exists(path):
+        raise ValueError("unknown template '{}'. Available: {}".format(
+            name, ", ".join(list_templates()) or "(none)"))
+    # parse-check it (also validates it's a usable contract shape)
+    raw = _read_file(path)
+    GoalContract.from_json(raw)
+    return raw
+
+
+def _read_file(path: str) -> str:
     with open(path, "r", encoding="utf-8") as f:
-        return GoalContract.from_json(f.read())
+        return f.read()

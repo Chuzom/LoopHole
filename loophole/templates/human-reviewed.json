@@ -1,0 +1,16 @@
+{
+  "_help": "For goals without a crisp automated check: a human approves at the end, optionally with a soft (LLM) rubric that can only VETO. Prefer adding a real hard verifier when you can. Edit 'goal', then: loophole run --contract loophole.json",
+  "goal": "TODO: describe the goal in one sentence (what 'done' means)",
+  "verifiers": [
+    {
+      "kind": "soft",
+      "rubric": "TODO: what would make you reject this result? (the soft judge may only veto)"
+    },
+    {
+      "kind": "human",
+      "prompt": "Does the result satisfy the goal?"
+    }
+  ],
+  "allowed_writes": ["**"],
+  "protected_paths": ["loophole.json"]
+}

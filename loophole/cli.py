@@ -13,7 +13,8 @@ from . import __version__
 from .budget import Budget, estimate as estimate_cost
 from .contract import GoalContract, Verifier, VerifierKind, ContractError
 from .initializer import (CONTRACT_FILENAME, detect_contract, write_starter,
-                          load_contract)
+                          load_contract, load_template_raw,
+                          list_templates as _list_templates)
 from .audit import render_audit, render_runs
 from .loop import Roles, LoopConfig, run_goal
 from .provider import make_provider, ProviderError
@@ -40,24 +41,74 @@ def main() -> None:
 @main.command()
 @click.option("--path", "repo", default=".", help="Repo to inspect.")
 @click.option("--force", is_flag=True, help="Overwrite an existing loophole.json.")
-def init(repo: str, force: bool) -> None:
-    """Infer a starter contract (loophole.json) from the repo.
+@click.option("--template", "template", default=None,
+              help="Scaffold from a bundled template instead of inspecting the repo.")
+@click.option("--list-templates", is_flag=True, help="List bundled templates and exit.")
+def init(repo: str, force: bool, template: Optional[str], list_templates: bool) -> None:
+    """Infer a starter contract (loophole.json) from the repo, or scaffold a template.
 
     Inspects the filesystem only — no code execution, no model calls. Edit the
     emitted 'goal' field, then run with --contract.
     """
+    if list_templates:
+        for name in _list_templates():
+            click.echo(name)
+        return
     repo = os.path.realpath(repo)
     out = os.path.join(repo, CONTRACT_FILENAME)
     if os.path.exists(out) and not force:
         raise click.ClickException(
             "{} already exists (use --force to overwrite)".format(CONTRACT_FILENAME))
-    contract, notes = detect_contract(repo)
-    write_starter(contract, out)
-    for n in notes:
-        _say(n)
+    if template:
+        try:
+            raw = load_template_raw(template)
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(raw if raw.endswith("\n") else raw + "\n")
+        _say("scaffolded from template '{}'".format(template))
+    else:
+        contract, notes = detect_contract(repo)
+        write_starter(contract, out)
+        for n in notes:
+            _say(n)
     click.echo("wrote " + click.style(out, fg="green"))
     click.echo("edit the \"goal\" field, then: "
                + click.style("loophole run --contract loophole.json", fg="cyan"))
+
+
+@main.group()
+def contract() -> None:
+    """Work with Goal Contract files (acceptance-spec-as-code)."""
+
+
+@contract.command("validate")
+@click.argument("path")
+def contract_validate(path: str) -> None:
+    """Validate a contract file/URL (parses + satisfies the 'must define done' rule)."""
+    try:
+        c = load_contract(path)
+        c.validate()
+    except (OSError, ValueError, ContractError) as e:
+        raise click.ClickException("invalid contract: {}".format(e))
+    click.echo(click.style("valid", fg="green") + " — " + c.goal)
+
+
+@contract.command("show")
+@click.argument("path")
+def contract_show(path: str) -> None:
+    """Pretty-print a contract file/URL (verifiers, boundary, mutation policy)."""
+    try:
+        c = load_contract(path)
+    except (OSError, ValueError) as e:
+        raise click.ClickException("could not load contract: {}".format(e))
+    click.echo("Goal: " + c.goal)
+    click.echo("Verifiers:")
+    for v in c.verifiers:
+        detail = v.command or v.rubric or v.prompt or ""
+        click.echo("  - [{}] {}".format(v.kind.value, detail[:80]))
+    click.echo("allowed_writes:  " + ", ".join(c.allowed_writes))
+    click.echo("protected_paths: " + ", ".join(c.all_protected_paths or ["(none)"]))
 
 
 @main.command()
