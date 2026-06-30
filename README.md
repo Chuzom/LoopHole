@@ -113,6 +113,7 @@ loophole registry list                            # named, shareable acceptance 
 loophole registry add team-default ./loophole.json   # publish a spec; reuse by name
 loophole run --contract team-default              # run a registry spec by name
 loophole run "<goal>" --watch                    # live terminal view — THE FORGE
+loophole watch --demo                             # self-driving terminal swarm demo (no LLM)
 loophole serve                                    # live web FLEET — all runs, click to drill in
 loophole serve <goal-id>                          # live web Forge for one run
 loophole demo                                     # the 30s 'can't-fake-done' demo (no LLM)

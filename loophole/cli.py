@@ -471,16 +471,33 @@ def status(goal_id: str, db: Optional[str]) -> None:
 
 
 @main.command()
-@click.argument("goal_id")
+@click.argument("goal_id", required=False)
 @click.option("--db", default=None)
 @click.option("--once", is_flag=True, help="Render a single frame and exit.")
 @click.option("--interval", default=1.0, type=float, help="Refresh seconds.")
-def watch(goal_id: str, db: Optional[str], once: bool, interval: float) -> None:
-    """Live view of the swarm — THE FORGE: agents, merge-train, and the VERIFY GATE."""
-    store = Store(db or _default_db())
-    if not store.get_goal(goal_id):
-        store.close()
-        raise click.ClickException("no such goal: " + goal_id)
+@click.option("--demo", is_flag=True, help="Self-driving live demo (no LLM, no real run).")
+def watch(goal_id: Optional[str], db: Optional[str], once: bool, interval: float,
+          demo: bool) -> None:
+    """Live view of the swarm — THE FORGE: agents, merge-train, and the VERIFY GATE.
+
+    `--demo` runs a self-driving swarm so you can watch the terminal UI animate in any
+    terminal (Claude Code, Cursor, Codex) without an LLM or a real run.
+    """
+    if demo:
+        import tempfile
+        store = Store(os.path.join(tempfile.mkdtemp(prefix="loophole_demo_"), "demo.db"))
+        from .serve_demo import seed_and_simulate
+        goals, _stop = seed_and_simulate(store, interval=1.4)
+        goal_id = goals[2]                       # the live, animating run
+        interval = min(interval, 0.3)            # smoother animation for the demo
+    else:
+        store = Store(db or _default_db())
+        if not goal_id:
+            store.close()
+            raise click.ClickException("a GOAL_ID is required (or use --demo)")
+        if not store.get_goal(goal_id):
+            store.close()
+            raise click.ClickException("no such goal: " + goal_id)
     try:
         run_watch(store, goal_id, interval=interval, once=once)
     except KeyboardInterrupt:

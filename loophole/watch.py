@@ -27,6 +27,37 @@ _RUNNING_GLYPH = "\033[36m⚙\033[0m"   # only used with color
 _BOUNDARY_KINDS = {"write_glob_violation", "merge_gate_reject",
                    "soft_fail_closed", "boundary_violation"}
 
+# ---- the funny swarm vocabulary (ASCII-only so it renders identically in any
+# terminal — Claude Code, Cursor, Codex, plain ssh) -------------------------
+_SPN = "|/-\\"                                   # universal ASCII spinner
+_FACE_OPEN = "(o_o)"
+_FACE_BLINK = "(-_-)"
+_FACE_WORK = ["(o_o)", "(o_o)", "(0_0)", "(o_o)", "(>_>)", "(o_o)", "(<_<)"]
+_FACE_DONE = "(^_^)v"
+_FACE_FAIL = "(x_x)"
+# little goofy status lines — what an agent is "doing" while it grinds
+_ACTIVITIES = [
+    "hammering code", "summoning a regex", "bribing the linter",
+    "renaming x -> data", "writing a test (ugh)", "deleting a TODO",
+    "fighting the type checker", "googling the stacktrace",
+    "refactoring in circles", "consulting the rubber duck",
+    "untangling a merge", "appeasing the verifier", "naming things (hard)",
+    "hunting an off-by-one", "petting the edge cases", "arguing with git",
+]
+
+
+def _seed(s: str) -> int:
+    """Deterministic per-agent seed (builtin hash() is salted per process)."""
+    return sum((i + 1) * ord(c) for i, c in enumerate(s)) & 0xFFFF
+
+
+def _busy_bar(seed: int, frame: int, total: int = 8) -> str:
+    """A knight-rider shimmer so an agent always looks alive (indeterminate)."""
+    span = total * 2 - 2
+    p = (seed + frame) % span
+    pos = p if p < total else span - p
+    return "".join("▓" if i == pos else "░" for i in range(total))
+
 
 def _col(s: str, name: str, color: bool) -> str:
     return (_C[name] + s + _C["reset"]) if color else s
@@ -56,43 +87,65 @@ def _latest(events: List[Any], kind: str) -> Optional[Any]:
     return None
 
 
-def render_frame(goal_text: str, status: str, tasks: List[Any],
-                 events: List[Any], color: bool = True, width: int = 72) -> str:
+def _agent_line(t: Any, idx: int, frame: int, color: bool) -> str:
+    """One funny, animated agent: a face that blinks/looks around, a spinner, and a
+    goofy 'what it's doing' line that drifts over time. Deterministic per (id, frame)."""
+    seed = _seed(getattr(t, "id", "") or "") ^ (idx * 131)
+    blink = ((seed // 7 + frame) // 3) % 9 == 0
+    face = _FACE_BLINK if blink else _FACE_WORK[(seed + frame // 6) % len(_FACE_WORK)]
+    spin = _SPN[frame % 4]
+    act = _ACTIVITIES[(seed + frame // 5) % len(_ACTIVITIES)]
+    name = (t.description or "")[:22]
+    return "   {} {}  {:<22} {:<26} {}".format(
+        _col(face, "cyan", color), spin, name, _col(act, "dim", color),
+        _busy_bar(seed, frame))
+
+
+def render_frame(goal_text: str, status: str, tasks: List[Any], events: List[Any],
+                 color: bool = True, width: int = 72, frame: int = 0) -> str:
     line = "─" * width
     out: List[str] = []
     add = out.append
 
     # ---- header ----
-    add(_col("╔═ LOOPHOLE ═ THE FORGE " + "═" * (width - 23) + "╗", "magenta", color))
+    spark = _SPN[frame % 4]
+    add(_col("╔═ LOOPHOLE ═ THE FORGE " + spark + " " + "═" * (width - 25) + "╗", "magenta", color))
     add(" {}  {}".format(_col("GOAL", "bold", color), goal_text[:width - 16])
         + "  " + _col("[" + status + "]", "yellow", color))
 
-    # ---- the swarm (running lanes + recently done) ----
+    # ---- the swarm: a little crew of agents, each doing something silly ----
     add(_col(" " + "─" * ((width - 11) // 2) + " THE SWARM " + "─" * ((width - 11) // 2), "dim", color))
     running = [t for t in tasks if t.status == "running"]
     done = [t for t in tasks if t.status == "done"]
     failed = [t for t in tasks if t.status == "failed"]
     if not running and not done:
-        add("  " + _col("· no agents active yet", "dim", color))
-    lane = 1
-    for t in running[:5]:
-        glyph = _col("⚙ run", "cyan", color)
-        add("  lane{}  {}  {}".format(lane, glyph, t.description[:width - 18]))
-        lane += 1
+        add("  " + _col("· no agents active yet", "dim", color)
+            + _col("  " + _FACE_BLINK + " (napping)", "dim", color))
+    for i, t in enumerate(running[:5]):
+        add(_agent_line(t, i, frame, color))
     for t in done[-2:]:
-        add("  " + _col("✓ done", "green", color) + "   " + t.description[:width - 14])
+        add("   " + _col(_FACE_DONE, "green", color) + "    "
+            + (t.description or "")[:width - 18] + _col("  merged ✓", "green", color))
     for t in failed[-1:]:
-        add("  " + _col("✗ fail", "red", color) + "   " + t.description[:width - 14])
+        add("   " + _col(_FACE_FAIL, "red", color) + "     "
+            + (t.description or "")[:width - 18] + _col("  bonked ✗ (retrying)", "red", color))
 
     # ---- merge-train + VERIFY GATE (the hero beat) ----
     add(_col(" " + line[1:], "dim", color))
     vr = _latest(events, "verify_run")
     bnd = _latest_boundary(events)
     verdict, vcolor = _verdict(vr, bnd, color)
-    add("   merge-train {}   candidate {}    ({} merged)".format(
-        _col("▶▶▶", "blue", color), _col("──────▶", "blue", color), len(done)))
-    # centered gate box, colored as a whole so ANSI never breaks the column math
-    gate_text = "  VERIFY GATE   " + verdict + "  "
+    # an animated little cart trundling toward the gate carrying a candidate
+    track = 14
+    pos = frame % (track + 1)
+    cart = " " * pos + "[o-o]" + "─" * (track - pos) + "▶"
+    add("   merge-train  " + _col(cart, "blue", color)
+        + "  " + _col("⊟ gate", vcolor, color) + "   ({} merged)".format(len(done)))
+    # centered gate box; a fresh verdict makes it "flash" with chevrons each frame
+    fresh = bool(events) and events[-1]["kind"] in (_BOUNDARY_KINDS | {"verify_run"})
+    flash = fresh and frame % 2 == 0
+    mark = "»" if flash else " "
+    gate_text = "  VERIFY GATE  {} {} {} ".format(mark, verdict, mark[::-1] or " ")
     boxw = len(gate_text)
     pad = " " * max(0, (width - boxw - 2) // 2)
     add(pad + _col("┌" + "─" * boxw + "┐", vcolor, color))
@@ -106,7 +159,8 @@ def render_frame(goal_text: str, status: str, tasks: List[Any],
         add(" " + _col("⛨ BOUNDARY", "green", color) + " held ×{}".format(len(saves))
             + "   last: " + last[:width - 28])
     else:
-        add(" " + _col("⛨ BOUNDARY", "dim", color) + " no cheats attempted")
+        add(" " + _col("⛨ BOUNDARY", "dim", color) + " no cheats attempted   "
+            + _col("(>_>) watching", "dim", color))
 
     # ---- progress ----
     score = int(_payload(vr).get("score", 0)) if vr else 0
@@ -173,13 +227,17 @@ def watch_during(store: Any, goal_id: str, run_callable, interval: float = 0.7,
         except BaseException as e:   # surface in the main thread after join
             box["error"] = e
 
+    tick = [0]
+
     def _draw():
         g = store.get_goal(goal_id)
         if not g:
             return
-        frame = render_frame(GoalContract.from_json(g["contract"]).goal, g["status"],
-                             store.tasks_for_goal(goal_id), store.events(goal_id), color=color)
-        out.write(_CLEAR_HOME + frame + "\n")
+        body = render_frame(GoalContract.from_json(g["contract"]).goal, g["status"],
+                            store.tasks_for_goal(goal_id), store.events(goal_id),
+                            color=color, frame=tick[0])
+        tick[0] += 1
+        out.write(_CLEAR_HOME + body + "\n")
         out.flush()
 
     t = threading.Thread(target=_runner, daemon=True)
@@ -201,15 +259,19 @@ def run_watch(store: Any, goal_id: str, interval: float = 1.0, once: bool = Fals
     from .contract import GoalContract
     out = out or sys.stdout
     terminal = {"done", "failed", "paused"}
+    tick = 0
     while True:
         g = store.get_goal(goal_id)
         if not g:
             out.write("no such goal: {}\n".format(goal_id))
             return
         goal_text = GoalContract.from_json(g["contract"]).goal
-        frame = render_frame(goal_text, g["status"], store.tasks_for_goal(goal_id),
-                             store.events(goal_id), color=out.isatty() if hasattr(out, "isatty") else False)
-        out.write(("" if once else _CLEAR_HOME) + frame + "\n")
+        body = render_frame(goal_text, g["status"], store.tasks_for_goal(goal_id),
+                            store.events(goal_id),
+                            color=out.isatty() if hasattr(out, "isatty") else False,
+                            frame=tick)
+        tick += 1
+        out.write(("" if once else _CLEAR_HOME) + body + "\n")
         out.flush()
         if once or g["status"] in terminal:
             return

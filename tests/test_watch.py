@@ -117,3 +117,32 @@ def test_cli_watch_once():
 
         r2 = runner.invoke(main, ["watch", "nope", "--once", "--db", db])
         assert r2.exit_code != 0
+
+
+class _T:
+    def __init__(self, i, d, st):
+        self.id = i; self.description = d; self.status = st
+
+
+def test_swarm_shows_funny_animated_agents():
+    from loophole.watch import render_frame, _ACTIVITIES
+    tasks = [_T("t0", "write parser.py", "running"), _T("t1", "write tokens.py", "running")]
+    f = render_frame("g", "running", tasks, [], color=False, frame=0)
+    assert any(face in f for face in ["(o_o)", "(0_0)", "(-_-)", "(>_>)", "(<_<)"])
+    assert any(a in f for a in _ACTIVITIES)            # a goofy activity line
+    assert "write parser.py" in f and "write tokens.py" in f
+
+
+def test_agent_vocabulary_is_ascii_for_cross_terminal_parity():
+    # Claude Code / Cursor / Codex must show the swarm identically -> ASCII only.
+    from loophole.watch import _FACE_WORK, _SPN, _FACE_BLINK, _FACE_DONE, _FACE_FAIL, _ACTIVITIES
+    for s in _FACE_WORK + list(_SPN) + [_FACE_BLINK, _FACE_DONE, _FACE_FAIL] + _ACTIVITIES:
+        s.encode("ascii")          # raises UnicodeEncodeError on any non-ASCII
+
+
+def test_animation_advances_with_frame():
+    from loophole.watch import render_frame
+    t = [_T("abc", "do a thing", "running")]
+    a = render_frame("g", "running", t, [], color=False, frame=0)
+    b = render_frame("g", "running", t, [], color=False, frame=1)
+    assert a != b                  # spinner / merge-cart / shimmer moved
