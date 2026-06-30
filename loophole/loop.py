@@ -27,7 +27,7 @@ from typing import Callable, Dict, List, Optional
 from .budget import Budget, BudgetExceeded
 from .contract import GoalContract, VerifierKind
 from .integration import Integration
-from .executor import execute_task, ExecResult
+from .executor import ExecResult, ReActExecutor, CommandExecutor
 from .planner import make_plan, plan_hash, PlannerError
 from .plan_critic import critique_plan, attack_verifier
 from .provider import Provider
@@ -63,6 +63,8 @@ class LoopConfig:
     skip_plan_critique: bool = False
     allow_no_git: bool = False     # opt-in to shared-workspace mode when not a git repo
     on_human: Optional[Callable[[str], bool]] = None   # human checkpoint callback
+    executor_command: Optional[str] = None  # VIS-1: bring-your-own external agent
+                                            # (e.g. 'claude -p {task}'); None = ReAct
 
 
 @dataclass
@@ -431,9 +433,15 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
         with integ.git_lock:
             wt = integ.make_worktree(wid, base_commit=integ.head())
         try:
-            res: ExecResult = execute_task(roles.executor, task, wt,
-                                           max_steps=cfg.exec_max_steps,
+            # VIS-1: the executor is a pluggable backend. An external "bring-your-
+            # own" agent runs as a black box; the verifier boundary is unchanged.
+            if cfg.executor_command:
+                executor = CommandExecutor(cfg.executor_command,
                                            shell_timeout=cfg.shell_timeout)
+            else:
+                executor = ReActExecutor(roles.executor, max_steps=cfg.exec_max_steps,
+                                         shell_timeout=cfg.shell_timeout)
+            res: ExecResult = executor.run(task, wt)
             cost = roles.executor.price_in * res.prompt_tokens / 1000.0 + \
                    roles.executor.price_out * res.completion_tokens / 1000.0
             budget.charge(cost, res.total_tokens)

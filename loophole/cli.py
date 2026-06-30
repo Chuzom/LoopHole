@@ -69,6 +69,10 @@ def init(repo: str, force: bool) -> None:
 @click.option("--workspace", default="./loophole-out", help="Directory agents work in.")
 @click.option("--planner-model", default="ollama:llama3", help="provider:model for planning.")
 @click.option("--executor-model", default="ollama:llama3", help="provider:model for execution.")
+@click.option("--executor-command", default=None,
+              help="Bring-your-own executor: run an external agent CLI instead of "
+                   "the built-in ReAct loop, e.g. 'claude -p {task}'. The agent is "
+                   "sandboxed and the verifier boundary still governs 'done'.")
 @click.option("--critic-model", default=None, help="provider:model for critique (default: planner).")
 @click.option("--cheap-model", default=None, help="provider:model for budget auto-downgrade.")
 @click.option("--max-parallel", default=4, type=int)
@@ -82,7 +86,8 @@ def init(repo: str, force: bool) -> None:
 @click.option("--db", default=None, help="State DB path.")
 def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[str],
         human: bool, workspace: str,
-        planner_model: str, executor_model: str, critic_model: Optional[str],
+        planner_model: str, executor_model: str, executor_command: Optional[str],
+        critic_model: Optional[str],
         cheap_model: Optional[str], max_parallel: int, max_rounds: int,
         max_cost: float, max_tokens: int, protect: tuple,
         expect_test_delta: Optional[int], skip_critique: bool, db: Optional[str]) -> None:
@@ -148,7 +153,8 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
 
     budget = Budget(max_cost_usd=contract.max_cost_usd, max_tokens=contract.max_tokens)
     cfg = LoopConfig(max_parallel=max_parallel, skip_plan_critique=skip_critique,
-                     on_human=_human_checkpoint if contract.human_verifiers else None)
+                     on_human=_human_checkpoint if contract.human_verifiers else None,
+                     executor_command=executor_command)
 
     outcome = run_goal(store, goal_id, contract, roles, budget, cfg, log=_say)
 
