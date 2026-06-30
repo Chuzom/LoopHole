@@ -414,18 +414,13 @@ def serve(goal_id: Optional[str], db: Optional[str], host: str, port: int,
           no_browser: bool) -> None:
     """Live WEB view of a run — THE FORGE in the browser (Phase 1).
 
-    With no GOAL_ID, serves the most recent run. Run a goal in one terminal and
-    `loophole serve` in another to watch it live.
+    With no GOAL_ID, opens the FLEET view (all runs, click a card to drill in). Pass
+    a GOAL_ID to open that run's Forge directly. Run goals in one terminal and
+    `loophole serve` in another to watch the fleet live.
     """
     from .serve import serve as _serve
     store = Store(db or _default_db())
-    if not goal_id:
-        goals = store.list_goals()
-        if not goals:
-            store.close()
-            raise click.ClickException("no runs yet — start one with `loophole run`")
-        goal_id = max(goals, key=lambda g: g["created_at"])["id"]
-    if not store.get_goal(goal_id):
+    if goal_id and not store.get_goal(goal_id):
         store.close()
         raise click.ClickException("no such goal: " + goal_id)
     try:
