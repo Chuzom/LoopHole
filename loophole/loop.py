@@ -104,7 +104,8 @@ def _baseline_test_total(contract: GoalContract, integ: Integration,
 def verify_candidate(contract: GoalContract, integ: Integration,
                      baseline_total: Optional[float],
                      base_commit: Optional[str] = None,
-                     soft_judge: Optional[Provider] = None) -> VerifyVerdict:
+                     soft_judge: Optional[Provider] = None,
+                     gate_only: bool = False) -> VerifyVerdict:
     """Verify from a FRESH checkout of the integration HEAD (council fix B).
 
     base_commit: the goal's ORIGINAL start commit. The protected-path boundary
@@ -112,6 +113,10 @@ def verify_candidate(contract: GoalContract, integ: Integration,
     tampering already merged into HEAD would be invisible (GAP 1 fix).
     soft_judge: provider used to evaluate soft (rubric) verifiers, which may only
     VETO a hard pass (GAP 2 fix).
+    gate_only: when True, run ONLY the deterministic checks (hard verifiers,
+    protected-path boundary, test-count floor) and skip the LLM soft judge. Used
+    by the per-merge gate (R3) so every merge is cheaply re-verified before it is
+    published to HEAD; the soft judge and human checkpoint stay at the round level.
     """
     cand = tempfile.mkdtemp(prefix="loophole_cand_")
     base = tempfile.mkdtemp(prefix="loophole_basechk_")
@@ -146,7 +151,7 @@ def verify_candidate(contract: GoalContract, integ: Integration,
         # evaluated) doesn't veto, but forces a human checkpoint before "done".
         soft_veto = False
         needs_human: List[str] = []
-        if contract.soft_verifiers and hard_ok and not violations:
+        if not gate_only and contract.soft_verifiers and hard_ok and not violations:
             for v in contract.soft_verifiers:
                 sr = evaluate_soft_verifier(v, cand, soft_judge)
                 results.append(sr)
@@ -281,7 +286,8 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
                 store.set_task_status(t.id, "ready", goal_id)
             batch = admit_parallel(rdy, cfg.max_parallel)
             say("round {}: executing {} task(s)".format(rnd + 1, len(batch)))
-            _run_batch(store, integ, roles, budget, cfg, goal_id, batch, contract, say)
+            _run_batch(store, integ, roles, budget, cfg, goal_id, batch, contract,
+                       baseline_total, base_commit, say)
             # N4: unblock the DAG so a permanently-failed task can't wedge the goal
             _abandon_unrunnable(store, goal_id, say)
 
@@ -369,7 +375,8 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
 
 def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
                cfg: LoopConfig, goal_id: str, batch: List[Task],
-               contract: GoalContract, say: Callable[[str], None]) -> None:
+               contract: GoalContract, baseline_total: Optional[float],
+               base_commit: Optional[str], say: Callable[[str], None]) -> None:
     def work(task: Task) -> None:
         try:
             _work_inner(task)
@@ -420,10 +427,29 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
                     _fail_task(store, integ, task, goal_id, cfg, attempts,
                                "reported complete but made no file changes", say)
                     return
+                pre_merge = integ.head()
                 ok, detail = integ.merge_task(wid)
-            if not ok:
-                _fail_task(store, integ, task, goal_id, cfg, attempts, detail, say)
-                return
+                if not ok:
+                    _fail_task(store, integ, task, goal_id, cfg, attempts, detail, say)
+                    return
+                # Per-merge gate (R3): re-verify the MERGED HEAD before it is
+                # published. Deterministic checks only (hard verifiers + boundary
+                # + test-count). If the merge verified red, roll HEAD back so a bad
+                # merge never poisons the worktrees that branch off it. This holds
+                # the git lock — the merge-train is serial by design.
+                if integ.is_git and (contract.hard_verifiers or contract.all_protected_paths):
+                    gate = verify_candidate(contract, integ, baseline_total,
+                                            base_commit=base_commit, gate_only=True)
+                    if not gate.passed:
+                        integ.reset_hard(pre_merge or "HEAD")
+                        store.log("merge_gate_reject", goal_id=goal_id, task_id=task.id,
+                                  payload={"failures": gate.failures[:6],
+                                           "violations": gate.boundary_violations})
+                        _fail_task(store, integ, task, goal_id, cfg, attempts,
+                                   "merge gate failed (R3): " +
+                                   "; ".join((gate.failures + gate.boundary_violations)[:5]),
+                                   say)
+                        return
             store.update_task(task.id, status="done", result=res.summary,
                               artifact_commit=sha)
             store.log("task_done", goal_id=goal_id, task_id=task.id,

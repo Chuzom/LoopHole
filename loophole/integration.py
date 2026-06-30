@@ -133,6 +133,16 @@ class Integration:
             return False, "merge conflict: " + out
         return True, "merged"
 
+    def reset_hard(self, commit: str) -> None:
+        """Roll the integration HEAD back to ``commit`` (R3 merge-gate rollback).
+
+        Used to undo a merge that verified red, so a bad merge never persists in
+        HEAD where downstream worktrees would branch off it.
+        """
+        if not self.is_git:
+            return
+        _git(["reset", "--hard", "-q", commit], self.workspace, check=False)
+
     def discard_worktree(self, task_id: str) -> None:
         if not self.is_git:
             return
