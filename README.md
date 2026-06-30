@@ -6,7 +6,9 @@
 
 **A swarm of AI agents that work on a goal until it's _provably_ done — and tells you exactly what it couldn't prove.**
 
-[![tests](https://img.shields.io/badge/tests-37%20passing-22c55e)](#)
+**The acceptance layer for autonomous coding — "CI for AI agents." Bring your own agent; loophole is the trusted gate that decides what's _actually_ done.**
+
+[![tests](https://img.shields.io/badge/tests-107%20passing-22c55e)](#)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab)](#)
 [![providers](https://img.shields.io/badge/providers-Ollama%20%C2%B7%20Anthropic%20%C2%B7%20OpenAI-8b5cf6)](#)
 [![license](https://img.shields.io/badge/license-MIT-64748b)](LICENSE)
@@ -100,13 +102,17 @@ Because the verifier *is* the goalpost, loophole defends it:
 ## CLI
 
 ```bash
+loophole init                                   # infer a starter loophole.json from the repo
+loophole init --template refactor-frozen-tests  # or scaffold from a template
+loophole run                                    # auto-loads ./loophole.json
 loophole run "<goal>" --verify "pytest -q" [--workspace DIR]
-loophole run "<goal>" --executor-model ollama:qwen3-coder:30b --max-parallel 4
+loophole run --contract loophole.json --executor-command 'claude -p {task}'  # BYO agent
 loophole run "<goal>" --protect "tests/**" --expect-test-delta 0   # lock the suite
+loophole contract validate loophole.json        # validate / show a contract (path or URL)
+loophole audit <goal-id>                         # full audit trail (the trust artifact)
+loophole runs                                    # list past runs
 loophole estimate "<goal>" --max-rounds 10     # dry-run cost prediction
-loophole status <goal-id>                       # task DAG + progress
-loophole resume <goal-id>                       # continue after a pause
-loophole ls
+loophole status <goal-id>  ·  loophole resume <goal-id>  ·  loophole ls
 ```
 
 ## Providers
@@ -119,18 +125,57 @@ Provider-agnostic — pick per role (cheap executors, strong planner):
 
 Default is **Ollama** (free, local, zero-config). Set `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` to use those. `pip install -e '.[anthropic]'` or `'.[openai]'` for the SDKs.
 
+## Bring your own executor
+
+loophole's value is the **trusted boundary around an _untrusted_ executor** — so the
+executor is a pluggable backend. Use the built-in agent, or drive any external/
+frontier coding agent as a black box; the sandbox, write-allowlist, merge gate, and
+verifier are identical either way:
+
+```bash
+loophole run --contract loophole.json --executor-command 'claude -p {task}'
+```
+
+That's the bet: as models commoditize, *who wrote the code* matters less than
+*whether it provably passes*. loophole is the neutral referee, not another coder.
+
+## For teams — loophole as a CI acceptance gate
+
+Let any agent open a PR; make loophole the gate that decides if it's done — in CI,
+on neutral ground, with a reviewable audit trail:
+
+- **`loophole.json` is acceptance-spec-as-code** — committed, reviewed, reusable.
+  Scaffold with `loophole init` (it infers a starter from your repo) or
+  `loophole init --template <name>`; share contracts by path or URL.
+- **`loophole audit <run>`** renders every boundary decision (merge-gate rejections,
+  write-allowlist violations, soft-judge escalations) with its reason — trust the
+  result without reading every diff. `loophole runs` lists past runs.
+- See **[`examples/ci_gate.md`](examples/ci_gate.md)** for a GitHub Actions gate, and
+  **[`examples/cant_fake_done.py`](examples/cant_fake_done.py)** for the 30-second
+  "it can't lie to me" demo.
+
 ## Honest status & safety
 
 loophole is **v0.1**. Its promise is precise: it proves *"the candidate satisfies the declared contract under a trusted verifier boundary"* — **not** *"the goal is objectively achieved."* The Residual-Risk Report always says what went unchecked.
 
-> ⚠️ **Run it on trusted goals, trusted repos, and a disposable workspace for now.**
-> Agents execute shell commands; OS-level sandboxing of those commands is on the roadmap, not done. See [`docs/AUDIT_v2.md`](docs/AUDIT_v2.md) for a full, self-commissioned multi-model security audit — we publish our own findings.
+Agent-run shell commands are **OS-sandboxed** (macOS Seatbelt / Linux bubblewrap),
+deny-by-default, network-denied, with provider secrets scrubbed — and **fail-closed**
+if no sandbox is available. Still, treat goals and repos as you would any tool that
+runs code, and prefer a disposable workspace. The architecture is adversarially
+audited by a multi-model council; we publish our own findings.
 
 ## Roadmap
 
-- [ ] OS-level sandbox (container/seccomp) for `run_shell` and verifiers
-- [ ] Enforce per-task write-globs at commit time
-- [ ] Per-merge re-verification in the merge-train
+Shipped: OS sandbox for `run_shell`/verifiers · enforced per-task write-globs at
+commit · per-merge re-verification (verified-green invariant) · fail-closed soft
+judge · pluggable executors (bring-your-own-agent) · audit trail · shareable
+contracts + templates.
+
+Next (the acceptance-layer bet — see [`docs/VISION.md`](docs/VISION.md)):
+
+- [ ] Hosted control-plane (run history, audit, policy, fleet dashboards)
+- [ ] Verifier/contract registry (shareable acceptance specs)
+- [ ] First-class executor adapters for frontier coding agents
 - [ ] Richer verifier adapters (coverage, mutation testing)
 
 ## Contributing
