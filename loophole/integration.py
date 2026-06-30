@@ -164,6 +164,42 @@ class Integration:
         out = (out or "").strip()
         return out if rc == 0 and out else None
 
+    @staticmethod
+    def _is_loophole_commit(subject: str) -> bool:
+        s = subject.strip()
+        return (s.startswith("loophole task:") or s.startswith("loophole:")
+                or s.startswith("Merge branch 'loophole/"))
+
+    def reconcile_head(self) -> Optional[str]:
+        """Crash recovery for the per-merge gate (ARCH-1 / R3).
+
+        A hard kill between a merge and its gate rollback can leave HEAD ahead of
+        the last verified-green commit. On startup, roll HEAD back to last_green —
+        but ONLY when it is safe: last_green must be an ancestor of HEAD and EVERY
+        commit in (last_green, HEAD] must be loophole-authored. If any commit is a
+        user's (or HEAD has diverged / green is ahead), do nothing — never discard
+        work we didn't create. Returns the sha reset to, or None.
+        """
+        if not self.is_git:
+            return None
+        g = self.last_green()
+        head = self.head()
+        if not g or not head or head == g:
+            return None
+        # green must be a strict ancestor of HEAD
+        rc, _ = _git(["merge-base", "--is-ancestor", g, head], self.workspace, check=False)
+        if rc != 0:
+            return None
+        rc, out = _git(["log", "--format=%s", "{}..{}".format(g, head)],
+                       self.workspace, check=False)
+        if rc != 0:
+            return None
+        subjects = [ln for ln in (out or "").splitlines() if ln.strip()]
+        if not subjects or not all(self._is_loophole_commit(s) for s in subjects):
+            return None  # a user commit sits above green — refuse to roll back
+        self.reset_hard(g)
+        return g
+
     def discard_worktree(self, task_id: str) -> None:
         if not self.is_git:
             return
