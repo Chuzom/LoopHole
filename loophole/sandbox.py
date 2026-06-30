@@ -65,6 +65,8 @@ class SandboxPolicy:
     allow_network: bool = False
     extra_writable: Tuple[str, ...] = ()
     allow_unsandboxed: bool = False
+    confine_reads: bool = False   # EXPERIMENTAL (Seatbelt only): restrict reads to
+                                  # system dirs + the worktree (blocks ~/.ssh etc.)
 
 
 _SECRET_RE = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API)", re.I)
@@ -141,9 +143,24 @@ def _seatbelt_profile(root: str, policy: SandboxPolicy) -> str:
         "(allow signal (target self))",
         "(allow sysctl-read)",
         "(allow mach-lookup)",          # dyld / system frameworks
-        "(allow file-read*)",           # interpreters, libs, source — see docstring
-        "(deny file-write*)",
     ]
+    if policy.confine_reads:
+        # EXPERIMENTAL read-confinement (SEC-2 spike): allow reads only of system
+        # dirs needed to load interpreters/libs plus the worktree + writable roots.
+        # Blocks reading host secrets (~/.ssh, ~/.aws, arbitrary $HOME). Brittle —
+        # a command needing files outside this set (e.g. a venv outside the
+        # worktree) will fail, hence opt-in and off by default. bwrap is unaffected.
+        read_subpaths = ["/usr", "/bin", "/sbin", "/System", "/Library",
+                         "/private/var/db", "/etc", "/private/etc", "/dev"]
+        read_subpaths += _writable_roots(root, policy)
+        lines.append("(allow file-read-metadata)")
+        for p in read_subpaths:
+            esc = os.path.realpath(p).replace("\\", "\\\\").replace('"', '\\"')
+            lines.append('(allow file-read* (subpath "{}"))'.format(esc))
+        lines.append('(allow file-read* (literal "/"))')
+    else:
+        lines.append("(allow file-read*)")   # interpreters, libs, source
+    lines.append("(deny file-write*)")
     for w in _writable_roots(root, policy):
         # escape backslashes and double-quotes for the Scheme string literal
         esc = w.replace("\\", "\\\\").replace('"', '\\"')

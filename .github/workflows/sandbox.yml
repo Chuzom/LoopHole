@@ -1,0 +1,30 @@
+name: sandbox
+
+# Validates the Linux (bubblewrap) sandbox path, which the macOS dev host can't
+# exercise. The escape tests in tests/test_sandbox*.py run real attempts
+# (write-outside-root, network connect, secret echo) and assert the OS blocks
+# them — here, under bwrap rather than Seatbelt (SEC-2).
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux-bwrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - name: Install package + test deps
+        run: |
+          python -m pip install -U pip
+          pip install -e .
+          pip install pytest pytest-asyncio
+      - name: Confirm sandbox mechanism is bwrap on this host
+        run: python -c "from loophole import sandbox; m=sandbox.mechanism(); print('mechanism:', m); assert m=='bwrap', m"
+      - name: Run the full suite (sandbox boundary enforced under bwrap)
+        run: pytest -q
