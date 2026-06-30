@@ -76,6 +76,14 @@ def residual_risk_report(contract: GoalContract, verdict: Optional[VerifyVerdict
             add("  ? {}".format(n))
         add("")
 
+    # Module SDK: graded (non-code) verdicts carry a confidence + residual risk.
+    if verdict and getattr(verdict, "confidence", 1.0) < 1.0:
+        add("GRADED VERDICT (module verifiers — not a deterministic proof):")
+        add("  confidence: {:.0%}".format(verdict.confidence))
+        for r in (verdict.residual_risk or []):
+            add("  ~ residual: {}".format(r))
+        add("")
+
     add("What was NOT proven (residual risk):")
     if contract.soft_verifiers:
         add("  - Soft/subjective criteria are advisory only (LLM veto, not proof).")

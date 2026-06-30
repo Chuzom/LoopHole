@@ -58,6 +58,11 @@ class VerifyVerdict:
     # Reasons a human must sign off before completion even though nothing failed
     # (soft verifiers that abstained). Non-empty => do not auto-declare done.
     needs_human: List[str] = field(default_factory=list)
+    # Module SDK (graded verification): METADATA ONLY for non-code domains. confidence
+    # stays 1.0 on the strict code path and NEVER feeds `passed` in the per-merge gate.
+    confidence: float = 1.0
+    residual_risk: List[str] = field(default_factory=list)
+    evidence: dict = field(default_factory=dict)
 
     @property
     def metric_score(self) -> float:
