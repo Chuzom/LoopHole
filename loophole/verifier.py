@@ -35,6 +35,11 @@ class VerifierResult:
     metrics: Dict[str, float] = field(default_factory=dict)
     failures: List[str] = field(default_factory=list)
     output: str = ""
+    # A soft verifier that could not render a verdict (no judge / error /
+    # unparseable). It does NOT veto (passed stays True so a hard pass isn't
+    # blocked) but the loop must escalate to a human before declaring done —
+    # never silently pass an unevaluated rubric.
+    abstained: bool = False
 
     def signature(self) -> str:
         """A normalized failure signature for stuckness detection."""
@@ -50,6 +55,9 @@ class VerifyVerdict:
     results: List[VerifierResult] = field(default_factory=list)
     boundary_violations: List[str] = field(default_factory=list)
     failures: List[str] = field(default_factory=list)
+    # Reasons a human must sign off before completion even though nothing failed
+    # (soft verifiers that abstained). Non-empty => do not auto-declare done.
+    needs_human: List[str] = field(default_factory=list)
 
     @property
     def metric_score(self) -> float:
@@ -159,23 +167,31 @@ def evaluate_soft_verifier(v: Verifier, cand_dir: str,
                            judge: "Optional[Provider]") -> VerifierResult:
     """Evaluate a soft (rubric) verifier via an LLM. May only veto (GAP 2 fix).
 
-    With no judge available, abstains (passed=True) and says so — a soft verifier
-    must never block on infrastructure absence.
+    Fail-closed-to-human: when the rubric cannot actually be evaluated (no judge,
+    judge error, or an unparseable verdict) the result ABSTAINS — it does not veto
+    a hard pass, but it sets ``abstained`` so the loop escalates to a human rather
+    than silently completing on an unchecked rubric. Only a clear, parsed verdict
+    grants or vetoes.
     """
     name = "soft:" + (v.rubric or "")[:48]
     if judge is None:
-        return VerifierResult(name=name, passed=True,
-                              output="no soft judge configured; abstaining")
+        return VerifierResult(name=name, passed=True, abstained=True,
+                              output="no soft judge configured; needs human sign-off")
     from .provider import Msg  # local import to avoid cycle
     user = "RUBRIC:\n{}\n\nCANDIDATE FILES:\n{}".format(v.rubric, _snapshot(cand_dir))
     try:
         comp = judge.complete([Msg("system", _SOFT_SYSTEM), Msg("user", user)],
                               temperature=0.1)
     except Exception as e:  # never let a soft check crash the run
-        return VerifierResult(name=name, passed=True,
+        return VerifierResult(name=name, passed=True, abstained=True,
                               output="soft judge error, abstaining: {}".format(e))
     d = _parse_json_obj(comp.text)
-    satisfied = bool(d.get("satisfied", True))   # fail-open: abstain on parse miss
+    if not isinstance(d.get("satisfied"), bool):
+        # No clear verdict parsed — abstain to a human instead of fail-open.
+        return VerifierResult(name=name, passed=True, abstained=True,
+                              output="soft judge verdict unparseable; needs human "
+                                     "sign-off: {}".format(comp.text[:400]))
+    satisfied = d["satisfied"]
     reasons = [str(x) for x in d.get("reasons", [])]
     return VerifierResult(name=name, passed=satisfied,
                           failures=([] if satisfied else (reasons or ["soft rubric not satisfied"])),

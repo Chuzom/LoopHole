@@ -142,12 +142,18 @@ def verify_candidate(contract: GoalContract, integ: Integration,
         hard_ok = (not contract.hard_verifiers) or hard_pass
 
         # GAP 2 fix: soft verifiers may only VETO when hard checks are satisfied.
+        # Fail-closed-to-human: a soft verifier that abstained (couldn't be
+        # evaluated) doesn't veto, but forces a human checkpoint before "done".
         soft_veto = False
+        needs_human: List[str] = []
         if contract.soft_verifiers and hard_ok and not violations:
             for v in contract.soft_verifiers:
                 sr = evaluate_soft_verifier(v, cand, soft_judge)
                 results.append(sr)
-                if not sr.passed:
+                if sr.abstained:
+                    needs_human.append("{}: {}".format(
+                        sr.name, (sr.output or "indeterminate")[:160]))
+                elif not sr.passed:
                     soft_veto = True
 
         passed = hard_ok and not violations and not soft_veto
@@ -155,7 +161,8 @@ def verify_candidate(contract: GoalContract, integ: Integration,
         for r in results:
             failures.extend(r.failures)
         return VerifyVerdict(passed=passed, results=results,
-                             boundary_violations=violations, failures=failures)
+                             boundary_violations=violations, failures=failures,
+                             needs_human=needs_human)
     finally:
         shutil.rmtree(cand, ignore_errors=True)
         shutil.rmtree(base, ignore_errors=True)
@@ -297,6 +304,24 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
             # the human, so we don't prompt against an empty workspace.
             if not contract.hard_verifiers and work_remaining:
                 continue  # keep executing remaining tasks
+            # Soft-judge fail-closed-to-human: a soft verifier that could not be
+            # evaluated must not silently complete. Escalate to the human; if
+            # running headless (no callback), PAUSE rather than declare done.
+            if verdict.needs_human:
+                reason = "soft verifier indeterminate: " + "; ".join(verdict.needs_human[:3])
+                if cfg.on_human is None:
+                    say("soft judge indeterminate, no human available — pausing (fail-closed)")
+                    store.log("soft_fail_closed", goal_id=goal_id, payload={"reason": reason})
+                    return _finish(store, goal_id, "paused", rnd + 1, verdict, budget,
+                                   bypasses, reason, say)
+                if not cfg.on_human(contract.goal + "\n\n" + reason):
+                    feedback = "human rejected indeterminate soft check"
+                    verdict = None
+                    for t in store.tasks_for_goal(goal_id):
+                        if t.status in ("pending", "ready"):
+                            store.set_task_status(t.id, "abandoned", goal_id)
+                    continue
+                # approved → fall through to normal completion
             if contract.human_verifiers and cfg.on_human:
                 approved = all(cfg.on_human(hv.prompt or contract.goal)
                                for hv in contract.human_verifiers)
