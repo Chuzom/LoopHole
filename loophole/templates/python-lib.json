@@ -1,0 +1,13 @@
+{
+  "_help": "Starter contract for a Python library. Edit 'goal', confirm the verifier command and protected paths, then: loophole run --contract loophole.json",
+  "goal": "TODO: describe the goal in one sentence (what 'done' means)",
+  "verifiers": [
+    {
+      "kind": "hard",
+      "command": "pytest -q",
+      "expected_test_delta": 0
+    }
+  ],
+  "allowed_writes": ["src/**", "tests/**"],
+  "protected_paths": [".github/workflows/**", "*.lock", "LICENSE", "loophole.json"]
+}
