@@ -324,8 +324,10 @@ def contract_show(path: str) -> None:
 @click.option("--watch/--no-watch", "watch_live", default=None,
               help="Live-render THE FORGE (the swarm view) during the run. "
                    "Default: ON in an interactive terminal, OFF when piped/CI.")
-@click.option("--planner-model", default="ollama:llama3", help="provider:model for planning.")
-@click.option("--executor-model", default="ollama:llama3", help="provider:model for execution.")
+@click.option("--planner-model", default="chuzom:simple",
+              help="provider:model for planning (default routes via Chuzom).")
+@click.option("--executor-model", default="chuzom:complex",
+              help="provider:model for execution (default routes via Chuzom).")
 @click.option("--executor-command", default=None,
               help="Bring-your-own executor: run an external agent CLI instead of "
                    "the built-in ReAct loop, e.g. 'claude -p {task}'. The agent is "
@@ -588,8 +590,8 @@ def ls(db: Optional[str]) -> None:
 
 @main.command()
 @click.argument("goal_id")
-@click.option("--executor-model", default="ollama:llama3")
-@click.option("--planner-model", default="ollama:llama3")
+@click.option("--executor-model", default="chuzom:complex")
+@click.option("--planner-model", default="chuzom:simple")
 @click.option("--db", default=None)
 def resume(goal_id: str, executor_model: str, planner_model: str, db: Optional[str]) -> None:
     """Resume a paused/failed goal (discards un-merged worktrees, re-runs pending)."""

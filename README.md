@@ -114,9 +114,9 @@ loophole registry add team-default ./loophole.json   # publish a spec; reuse by 
 loophole run --contract team-default              # run a registry spec by name
 loophole run "<goal>"                            # THE FORGE shows live by DEFAULT (interactive)
 loophole run "<goal>" --no-watch                 # plain log (CI / when piping)
-loophole run --planner-model chuzom:simple --executor-model chuzom:complex ...
-                                                  # route models via Chuzom's tier policy
-                                                  #   (cheap planner, strong executor)
+# models route via Chuzom by DEFAULT (planner=chuzom:simple, executor=chuzom:complex);
+# set CHUZOM_URL to route through a live `chuzom-route` server, else local tier policy.
+loophole run "<goal>" --executor-model ollama:qwen3-coder:30b   # or pin a model directly
 loophole watch --demo                             # self-driving terminal swarm demo (no LLM)
 loophole serve                                    # live web FLEET — all runs, click to drill in
 loophole serve <goal-id>                          # live web Forge for one run
