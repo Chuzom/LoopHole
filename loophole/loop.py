@@ -139,7 +139,8 @@ def verify_candidate(contract: GoalContract, integ: Integration,
                      soft_judge: Optional[Provider] = None,
                      gate_only: bool = False,
                      store: "Optional[Store]" = None,
-                     pinned_commit: "Optional[str]" = None) -> VerifyVerdict:
+                     pinned_commit: "Optional[str]" = None,
+                     goal_id: "Optional[str]" = None) -> VerifyVerdict:
     """Verify from a FRESH checkout of the integration HEAD (council fix B).
 
     base_commit: the goal's ORIGINAL start commit. The protected-path boundary
@@ -240,13 +241,48 @@ def verify_candidate(contract: GoalContract, integ: Integration,
                 elif not sr.passed:
                     soft_veto = True
 
-        passed = hard_ok and not violations and not soft_veto
+        # Module SDK: dispatch non-builtin verifier kinds to registered evaluators —
+        # ROUND LEVEL ONLY (never in the gate; never cached). They grade with an
+        # explicit confidence + residual risk; a False result vetoes completion.
+        confidence = 1.0
+        residual_risk: List[str] = []
+        evidence: dict = {}
+        module_veto = False
+        if not gate_only and hard_ok and not violations:
+            module_vs = [v for v in contract.verifiers if not v.is_builtin]
+            if module_vs:
+                from . import plugins
+                ctx = plugins.VerifierContext(store=store, goal_id=goal_id,
+                                              base_commit=base_commit)
+                for v in module_vs:
+                    ev = plugins.get_evaluator(v.kind_str)
+                    if ev is None:
+                        residual_risk.append("no evaluator for module kind '{}'".format(v.kind_str))
+                        module_veto = True
+                        continue
+                    try:
+                        mr = ev(v, cand, ctx)
+                    except Exception as e:
+                        residual_risk.append("module '{}' errored: {}".format(v.kind_str, e))
+                        module_veto = True
+                        continue
+                    results.append(VerifierResult(name=mr.name, passed=mr.passed,
+                                                  failures=([] if mr.passed else [mr.detail or "module veto"]),
+                                                  output=mr.detail))
+                    confidence = min(confidence, mr.confidence)
+                    residual_risk.extend(mr.residual_risk)
+                    evidence[mr.name] = mr.evidence
+                    if not mr.passed:
+                        module_veto = True
+
+        passed = hard_ok and not violations and not soft_veto and not module_veto
         failures: List[str] = []
         for r in results:
             failures.extend(r.failures)
         return VerifyVerdict(passed=passed, results=results,
                              boundary_violations=violations, failures=failures,
-                             needs_human=needs_human)
+                             needs_human=needs_human, confidence=confidence,
+                             residual_risk=residual_risk, evidence=evidence)
     finally:
         shutil.rmtree(cand, ignore_errors=True)
         shutil.rmtree(base, ignore_errors=True)
@@ -256,6 +292,8 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
              budget: Budget, cfg: LoopConfig,
              log: Optional[Callable[[str], None]] = None) -> LoopOutcome:
     say = log or (lambda m: None)
+    from . import plugins
+    plugins.load_modules()   # discover installed modules (idempotent)
     # Work on a private copy so loop-local tweaks (e.g. forcing max_parallel=1 in
     # shared-workspace mode) never mutate the caller's LoopConfig.
     cfg = replace(cfg)
@@ -396,7 +434,7 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
         # ---- verify -------------------------------------------------------
         verdict = verify_candidate(contract, integ, baseline_total,
                                    base_commit=base_commit,
-                                   soft_judge=roles.critic, store=store)
+                                   soft_judge=roles.critic, store=store, goal_id=goal_id)
         store.log("verify_run", goal_id=goal_id,
                   payload={"passed": verdict.passed, "score": verdict.metric_score,
                            "violations": verdict.boundary_violations})

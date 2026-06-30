@@ -40,10 +40,17 @@ class Verifier:
     expected_test_delta: Optional[int] = None  # test count may not silently drop below baseline+delta
     environment: dict = field(default_factory=dict)
     allow_network: bool = False   # S1: opt this verifier out of the sandbox network deny
+    # Module SDK: a non-builtin `kind` (a string a module registered) carries its
+    # config here. Module verifiers grade at the round level — they NEVER enter the
+    # deterministic per-merge gate or the verify cache (those stay hard-only).
+    params: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if isinstance(self.kind, str):
-            self.kind = VerifierKind(self.kind)
+            try:
+                self.kind = VerifierKind(self.kind)   # a builtin kind
+            except ValueError:
+                pass                                  # a module kind — keep the string
         if self.kind == VerifierKind.HARD and not self.command:
             raise ContractError("hard verifier requires a `command`")
         if self.kind == VerifierKind.SOFT and not self.rubric:
@@ -51,15 +58,27 @@ class Verifier:
         if self.kind == VerifierKind.HUMAN and not self.prompt:
             self.prompt = "Does the result satisfy the goal? (approve/reject)"
 
+    @property
+    def kind_str(self) -> str:
+        return self.kind.value if isinstance(self.kind, VerifierKind) else str(self.kind)
+
+    @property
+    def is_builtin(self) -> bool:
+        return isinstance(self.kind, VerifierKind)
+
     def to_dict(self) -> dict:
         d = asdict(self)
-        d["kind"] = self.kind.value
+        d["kind"] = self.kind_str
         return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Verifier":
         d = dict(d)
-        d["kind"] = VerifierKind(d.get("kind", "hard"))
+        raw_kind = d.get("kind", "hard")
+        try:
+            d["kind"] = VerifierKind(raw_kind)
+        except ValueError:
+            d["kind"] = raw_kind   # module kind
         return cls(**d)
 
 
@@ -83,6 +102,10 @@ class GoalContract:
     max_tokens: int = 0                          # 0 = unlimited
     max_rounds: int = 25
     timeout_seconds: int = 7200
+    # Module SDK firewall: "code" is the strict flagship domain (deterministic gate,
+    # only builtin verifiers). A module declares its own domain (e.g. "quant") to
+    # use module verifier kinds. The two never mix in one contract.
+    domain: str = "code"
 
     def validate(self) -> None:
         """Reject any contract that cannot define 'done'."""
@@ -94,11 +117,20 @@ class GoalContract:
                 "without defining done. Add at least one --verify command, a soft "
                 "rubric, or a human checkpoint."
             )
-        # A soft verifier may only veto when a hard verifier exists; a contract
-        # of soft-only is allowed ONLY when there are also human checkpoints,
-        # otherwise nothing can ever grant completion.
+        # Firewall: the strict "code" domain admits only builtin verifier kinds, so
+        # module (graded/probabilistic) verifiers can never weaken the code path.
+        if self.domain == "code":
+            non_builtin = sorted({v.kind_str for v in self.verifiers if not v.is_builtin})
+            if non_builtin:
+                raise ContractError(
+                    "domain='code' admits only builtin verifiers (hard/soft/human); "
+                    "module kinds {} require a non-code domain.".format(non_builtin))
+        # A soft verifier may only veto when something can grant; a contract that can
+        # never GRANT completion is rejected. Module verifiers can grant (they gate at
+        # the round level), so they count toward "can_grant".
         kinds = {v.kind for v in self.verifiers}
-        can_grant = VerifierKind.HARD in kinds or VerifierKind.HUMAN in kinds
+        can_grant = (VerifierKind.HARD in kinds or VerifierKind.HUMAN in kinds
+                     or any(not v.is_builtin for v in self.verifiers))
         if not can_grant:
             raise ContractError(
                 "contract has only soft verifiers, which can VETO but never GRANT "
@@ -164,6 +196,7 @@ class GoalContract:
                 "max_tokens": self.max_tokens,
                 "max_rounds": self.max_rounds,
                 "timeout_seconds": self.timeout_seconds,
+                "domain": self.domain,
             },
             indent=2,
         )
@@ -187,6 +220,7 @@ class GoalContract:
             max_tokens=d.get("max_tokens", 0),
             max_rounds=d.get("max_rounds", 25),
             timeout_seconds=d.get("timeout_seconds", 7200),
+            domain=d.get("domain", "code"),
         )
 
     @classmethod
