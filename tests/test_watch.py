@@ -173,3 +173,14 @@ def test_run_watch_renders_funny_swarm_end_to_end():
     assert any(f in s for f in ["(o_o)", "(0_0)", "(>_>)", "(<_<)", "(-_-)"])  # an agent worked
     assert "(^_^)v" in s and "PASS" in s        # merged-agent face + final verdict
     store.close()
+
+
+def test_run_watch_default_and_flag_parse():
+    # THE FORGE is now the default for interactive `run`; both flag forms must parse,
+    # and a non-TTY invocation must NOT error on the option itself.
+    from click.testing import CliRunner
+    from loophole.cli import main
+    r = CliRunner()
+    for flag in ("--watch", "--no-watch"):
+        out = r.invoke(main, ["run", flag, "--contract", "/nope/missing.json"]).output
+        assert "no such option" not in out.lower()      # the flag is recognized

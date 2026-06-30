@@ -112,7 +112,8 @@ loophole contract validate loophole.json        # validate / show a contract (pa
 loophole registry list                            # named, shareable acceptance specs
 loophole registry add team-default ./loophole.json   # publish a spec; reuse by name
 loophole run --contract team-default              # run a registry spec by name
-loophole run "<goal>" --watch                    # live terminal view — THE FORGE
+loophole run "<goal>"                            # THE FORGE shows live by DEFAULT (interactive)
+loophole run "<goal>" --no-watch                 # plain log (CI / when piping)
 loophole watch --demo                             # self-driving terminal swarm demo (no LLM)
 loophole serve                                    # live web FLEET — all runs, click to drill in
 loophole serve <goal-id>                          # live web Forge for one run
