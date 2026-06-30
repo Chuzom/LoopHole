@@ -176,8 +176,11 @@ def _snapshot(cand_dir: str, max_files: int = 25, max_bytes: int = 20000) -> str
         for f in sorted(files):
             if len(parts) >= max_files or budget <= 0:
                 break
-            rel = os.path.relpath(os.path.join(dirpath, f), cand_dir)
-            content = _read(os.path.join(dirpath, f)) or b""
+            full = os.path.join(dirpath, f)
+            if os.path.islink(full):
+                continue  # CSEC-1: never surface symlink targets to the judge
+            rel = os.path.relpath(full, cand_dir)
+            content = _read(full) or b""
             try:
                 text = content.decode("utf-8")
             except UnicodeDecodeError:
@@ -279,8 +282,15 @@ def _glob_files(root: str, pattern: str):
 
 
 def _read(path: str) -> Optional[bytes]:
+    # CSEC-1: refuse to follow symlinks. An agent can commit a symlink (e.g.
+    # evil -> ~/.ssh/id_rsa) into its worktree; without O_NOFOLLOW the verifier
+    # would read the host target into the soft-judge prompt / boundary check / DB.
     try:
-        with open(path, "rb") as f:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return None  # symlink (ELOOP) or unreadable → treat as absent
+    try:
+        with os.fdopen(fd, "rb") as f:
             return f.read()
     except OSError:
         return None

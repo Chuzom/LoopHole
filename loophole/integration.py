@@ -227,7 +227,9 @@ class Integration:
             # copy the workspace minus worktree scratch
             if os.path.exists(dest):
                 shutil.rmtree(dest, ignore_errors=True)
-            shutil.copytree(self.workspace, dest,
+            # CSEC-1: symlinks=True preserves links AS links instead of following
+            # them (which would copy host-file targets into the verified checkout).
+            shutil.copytree(self.workspace, dest, symlinks=True,
                             ignore=shutil.ignore_patterns(".loophole_worktrees", ".git"))
             return dest
         commit = commit or self.head()

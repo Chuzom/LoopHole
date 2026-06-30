@@ -103,6 +103,15 @@ def _baseline_test_total(contract: GoalContract, integ: Integration,
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def _reset_orphan_running(store: Store, goal_id: str) -> int:
+    """CARCH-1: reset crash-orphaned 'running' tasks (no live worker) back to
+    'pending' so the loop re-runs them instead of wedging. Returns the count."""
+    orphans = [t for t in store.tasks_for_goal(goal_id) if t.status == "running"]
+    for t in orphans:
+        store.set_task_status(t.id, "pending", goal_id)
+    return len(orphans)
+
+
 def verify_candidate(contract: GoalContract, integ: Integration,
                      baseline_total: Optional[float],
                      base_commit: Optional[str] = None,
@@ -239,6 +248,13 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
         say("reconciled: rolled HEAD back to last verified-green {} "
             "(discarded an ungated merge from a prior crash)".format(rolled[:8]))
         store.log("merge_gate_reconcile", goal_id=goal_id, payload={"reset_to": rolled})
+    # CARCH-1: a crash can leave tasks 'running' with no worker. reconcile_head only
+    # repairs git; reset orphaned 'running' tasks to 'pending' so the loop re-runs
+    # them instead of wedging (need_plan/ready_tasks ignore 'running').
+    _n_orphans = _reset_orphan_running(store, goal_id)
+    if _n_orphans:
+        say("reconciled {} orphaned 'running' task(s) -> pending".format(_n_orphans))
+        store.log("task_orphans_reconciled", goal_id=goal_id, payload={"count": _n_orphans})
 
     # Pre-flight: verifier adversary review (fix F)
     bypasses: List[str] = []
