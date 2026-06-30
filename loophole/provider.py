@@ -228,8 +228,79 @@ class OpenAIProvider(Provider):
 # --------------------------------------------------------------------------- #
 # Factory                                                                     #
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Chuzom — cost-optimized routing across tiers (local-first)                  #
+# --------------------------------------------------------------------------- #
+class ChuzomProvider(Provider):
+    """Route each call through Chuzom's model-selection POLICY.
+
+    Spec: ``chuzom`` or ``chuzom:<tier>`` with tier in {auto, simple, moderate,
+    complex}. The idea: give a cheap model the easy roles (planning) and a stronger
+    model the hard ones (execution), then let LoopHole's verifier boundary catch a
+    too-cheap pick — Chuzom's cost savings WITH a correctness gate.
+
+    Transport, in order:
+      1. HTTP  — if ``$CHUZOM_URL`` is set, POST {prompt, complexity} to a live
+         Chuzom router (text-only rounds); fully decoupled from this process.
+      2. local — Chuzom's tier->spec policy, delegating to the concrete provider
+         (Ollama by default). Works offline and supports tool-calling.
+
+    Each tier maps to a full provider spec, overridable via env
+    CHUZOM_TIER_SIMPLE / _MODERATE / _COMPLEX (default: the local Ollama coders
+    Chuzom routes to). So a tier can even point at an API model when configured.
+    """
+    name = "chuzom"
+
+    def __init__(self, tier: str = "auto"):
+        self.tier = (tier or "auto").lower()
+        self.model = "chuzom:" + self.tier
+        self._tiers = {
+            "simple": os.environ.get("CHUZOM_TIER_SIMPLE", "ollama:qwen2.5-coder:7b"),
+            "moderate": os.environ.get("CHUZOM_TIER_MODERATE", "ollama:qwen3-coder:30b"),
+            "complex": os.environ.get("CHUZOM_TIER_COMPLEX", "ollama:qwen3-coder:30b"),
+        }
+        self._last: Optional[Provider] = None
+
+    def _pick(self, msgs: List[Msg]) -> tuple:
+        tier = self.tier
+        if tier not in self._tiers:                 # 'auto'/unknown -> size heuristic
+            n = sum(len(m.content or "") for m in msgs)
+            tier = "simple" if n < 1500 else ("moderate" if n < 6000 else "complex")
+        return tier, self._tiers[tier]
+
+    def complete(self, msgs: List[Msg], tools: Optional[List[dict]] = None,
+                 max_tokens: int = 4096, temperature: float = 0.2) -> Completion:
+        tier, spec = self._pick(msgs)
+        url = os.environ.get("CHUZOM_URL")
+        if url and not tools:                       # live Chuzom router (text rounds)
+            try:
+                return self._http(url, msgs, tier, max_tokens)
+            except Exception:
+                pass                                # fall back to local policy routing
+        delegate = make_provider(spec)
+        self._last = delegate
+        c = delegate.complete(msgs, tools=tools, max_tokens=max_tokens, temperature=temperature)
+        c.model = "chuzom:{}->{}".format(tier, c.model or spec)
+        return c
+
+    def _http(self, url: str, msgs: List[Msg], tier: str, max_tokens: int) -> Completion:
+        prompt = "\n\n".join("{}: {}".format(m.role, m.content) for m in msgs)
+        body = json.dumps({"prompt": prompt, "complexity": tier,
+                           "max_tokens": max_tokens}).encode()
+        req = urllib.request.Request(url, data=body,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=600) as r:
+            data = json.loads(r.read().decode())
+        return Completion(text=data.get("text") or data.get("result") or "",
+                          model="chuzom-http:" + tier)
+
+    def cost(self, c: Completion) -> float:
+        return self._last.cost(c) if self._last else 0.0
+
+
 def make_provider(spec: str) -> Provider:
-    """spec is 'provider' or 'provider:model', e.g. 'ollama:llama3', 'anthropic:claude-sonnet-4-6'."""
+    """spec is 'provider' or 'provider:model', e.g. 'ollama:llama3',
+    'anthropic:claude-sonnet-4-6', 'chuzom:complex'."""
     if ":" in spec:
         name, model = spec.split(":", 1)
     else:
@@ -241,4 +312,6 @@ def make_provider(spec: str) -> Provider:
         return AnthropicProvider(model=model or "claude-sonnet-4-6")
     if name == "openai":
         return OpenAIProvider(model=model or "gpt-4o")
+    if name == "chuzom":
+        return ChuzomProvider(tier=model or "auto")
     raise ProviderError("unknown provider: {}".format(name))
