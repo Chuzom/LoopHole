@@ -164,6 +164,18 @@ class Integration:
         out = (out or "").strip()
         return out if rc == 0 and out else None
 
+    def tree_sha(self) -> Optional[str]:
+        """Content id of the current HEAD tree (ARCH-2 verification cache key).
+
+        Identical content => identical sha regardless of commit metadata, so a
+        deterministic verification can be memoised against it.
+        """
+        if not self.is_git:
+            return None
+        rc, out = _git(["rev-parse", "HEAD^{tree}"], self.workspace, check=False)
+        out = (out or "").strip()
+        return out if rc == 0 and out else None
+
     @staticmethod
     def _is_loophole_commit(subject: str) -> bool:
         s = subject.strip()
