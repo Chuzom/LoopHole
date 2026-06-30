@@ -59,7 +59,11 @@ def test_run_shell_write_inside_root_works():
 def test_run_shell_confines_reads_by_default():
     # SEC-2: the untrusted agent shell can't read host files outside the worktree.
     with tempfile.TemporaryDirectory() as root:
-        outside = tempfile.mkdtemp()
+        # Put the secret under $HOME, NOT /tmp: the bwrap sandbox mounts its own
+        # tmpfs over /tmp (scoped scratch), which would shadow a /tmp secret on Linux
+        # regardless of read policy. $HOME exercises the real boundary on both
+        # Seatbelt and bwrap.
+        outside = tempfile.mkdtemp(dir=os.path.expanduser("~"))
         secret = os.path.join(outside, "secret.txt")
         with open(secret, "w") as f:
             f.write("HOST-SECRET-MATERIAL")
