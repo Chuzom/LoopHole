@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/loophole-flow.svg" alt="loophole — a swarm of agents that won't stop until the goal is provably done" width="820">
+<img src="assets/loophole-flow.svg" alt="loophole — a swarm of agents that won't stop until the goal is provably done" width="820">
 
 # loophole
 
@@ -171,7 +171,7 @@ commit · per-merge re-verification (verified-green invariant) · fail-closed so
 judge · pluggable executors (bring-your-own-agent) · audit trail · shareable
 contracts + templates.
 
-Next (the acceptance-layer bet — see [`docs/VISION.md`](docs/VISION.md)):
+Next (the acceptance-layer bet — *"CI for AI agents," bring-your-own-executor*):
 
 - [ ] Hosted control-plane (run history, audit, policy, fleet dashboards)
 - [ ] Verifier/contract registry (shareable acceptance specs)

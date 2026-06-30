@@ -26,3 +26,12 @@ def test_readme_carries_the_acceptance_layer_positioning():
     assert "examples/ci_gate.md" in rm
     # the stale "sandbox not done" warning must be gone (sandbox shipped)
     assert "OS-level sandboxing of those commands is on the roadmap, not done" not in rm
+
+
+def test_readme_has_no_links_into_gitignored_docs():
+    # docs/ is gitignored (local working notes); the committed README must not link
+    # into it or the references render broken on GitHub. Published assets live in
+    # assets/ instead.
+    rm = _read("README.md")
+    assert "docs/" not in rm, "README links into gitignored docs/ — move the asset to assets/"
+    assert os.path.exists(os.path.join(ROOT, "assets", "loophole-flow.svg"))
