@@ -193,11 +193,22 @@ def _bwrap_argv(command: str, root: str, policy: SandboxPolicy, tmp: str) -> Lis
     ]
     if policy.allow_network:
         argv.append("--share-net")       # ...re-share only when allowed
+    if policy.confine_reads:
+        # SEC-2: bind only system dirs needed to run interpreters, NOT the whole
+        # host FS — so the command can't read ~/.ssh, ~/.aws, etc. (CI-verified on
+        # Linux; macOS uses Seatbelt). Missing paths are skipped.
+        argv += ["--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"]
+        for p in ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc"):
+            if os.path.exists(p):
+                argv += ["--ro-bind", p, p]
+    else:
+        argv += [
+            "--ro-bind", "/", "/",       # whole FS read-only
+            "--dev", "/dev",
+            "--proc", "/proc",
+            "--tmpfs", "/tmp",
+        ]
     argv += [
-        "--ro-bind", "/", "/",           # whole FS read-only by default
-        "--dev", "/dev",
-        "--proc", "/proc",
-        "--tmpfs", "/tmp",
         "--bind", real_root, real_root,  # workspace read-write
         "--setenv", "TMPDIR", tmp,       # scoped scratch inside the workspace
     ]

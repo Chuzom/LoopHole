@@ -34,12 +34,17 @@ class ToolResult:
 
 
 class Toolbelt:
-    def __init__(self, root: str, timeout: int = 120, allow_unsandboxed: bool = False):
+    def __init__(self, root: str, timeout: int = 120, allow_unsandboxed: bool = False,
+                 confine_reads: bool = True):
         self.root = os.path.realpath(root)
         self.timeout = timeout
         # Fail-closed by default: if no OS sandbox is available, run_shell refuses
         # rather than running unconfined. The operator may opt out explicitly.
         self.allow_unsandboxed = allow_unsandboxed
+        # SEC-2: run_shell is the UNTRUSTED agent shell — confine its reads by
+        # default so it can't `cat ~/.ssh/id_rsa` and persist host secrets into the
+        # task DB. Overridable for commands that legitimately need broader reads.
+        self.confine_reads = confine_reads
 
     # ---- path safety -----------------------------------------------------
     def _resolve(self, path: str) -> str:
@@ -79,7 +84,8 @@ class Toolbelt:
         # preserved INSIDE the jail by the wrapped `/bin/sh -c` invocation.
         try:
             argv = wrap(command, self.root,
-                        SandboxPolicy(allow_unsandboxed=self.allow_unsandboxed))
+                        SandboxPolicy(allow_unsandboxed=self.allow_unsandboxed,
+                                      confine_reads=self.confine_reads))
         except SandboxUnavailable as e:
             return ToolResult(False, "sandbox unavailable: {}".format(e))
         try:
