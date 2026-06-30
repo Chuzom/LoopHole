@@ -68,3 +68,30 @@ def test_http_serves_page_and_state():
         srv.shutdown()
         srv.server_close()
         store.close()
+
+
+def test_sse_events_stream():
+    import time as _t
+    store, gid = _store_with_run()
+    srv = make_server(store, gid, host="127.0.0.1", port=0)
+    th = threading.Thread(target=srv.serve_forever, daemon=True)
+    th.start()
+    try:
+        base = "http://127.0.0.1:{}".format(srv.server_address[1])
+        resp = urllib.request.urlopen(base + "/events", timeout=5)
+        assert resp.headers.get("Content-Type") == "text/event-stream"
+        data_line = None
+        start = _t.time()
+        while _t.time() - start < 5:
+            line = resp.readline()
+            if line.startswith(b"data: "):
+                data_line = line[6:].strip()
+                break
+        assert data_line, "no SSE data event received"
+        snap = json.loads(data_line)
+        assert snap["goal"] == "build a parser"
+        resp.close()
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        store.close()
