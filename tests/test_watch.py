@@ -66,6 +66,42 @@ def test_frame_empty_run():
     store.close()
 
 
+def test_watch_during_runs_callable_and_renders():
+    import io
+    from loophole.watch import watch_during
+    store, _ = _store()
+    gid = store.create_goal(_cjson(), "/ws")
+
+    def _fake_run():
+        # simulate the loop emitting an event then finishing
+        store.log("verify_run", goal_id=gid, payload={"passed": True, "score": 1000})
+        store.set_goal_status(gid, "done")
+        return "OUTCOME-OK"
+
+    buf = io.StringIO()
+    result = watch_during(store, gid, _fake_run, interval=0.05, out=buf)
+    assert result == "OUTCOME-OK"          # returns the callable's result
+    assert "THE FORGE" in buf.getvalue()   # rendered at least the final frame
+    store.close()
+
+
+def test_watch_during_propagates_errors():
+    import io
+    from loophole.watch import watch_during
+    store, _ = _store()
+    gid = store.create_goal(_cjson(), "/ws")
+
+    def _boom():
+        raise RuntimeError("loop failed")
+
+    try:
+        watch_during(store, gid, _boom, interval=0.05, out=io.StringIO())
+        assert False, "expected the error to propagate"
+    except RuntimeError as e:
+        assert "loop failed" in str(e)
+    store.close()
+
+
 def test_cli_watch_once():
     runner = CliRunner()
     with tempfile.TemporaryDirectory() as d:
