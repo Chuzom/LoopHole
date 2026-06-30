@@ -74,3 +74,28 @@ def test_cache_does_not_leak_soft_results_into_hard():
         # the gate result must carry only the hard verifier, never the soft entry
         assert all("soft:" not in r.name for r in gate.results)
         assert not gate.needs_human
+
+
+def test_persistent_cache_survives_resume():
+    """ARCH-5: the verify cache is store-backed, so a fresh Integration (resume)
+    still hits — the hard verifier runs once across the 'restart'."""
+    import os
+    from loophole.state import Store
+    integ, ws = _repo()
+    store = Store(os.path.join(ws, "s.db"))
+    contract = GoalContract(goal="x", verifiers=[
+        Verifier(kind=VerifierKind.HARD, command="true")])
+    calls = {"n": 0}
+
+    def fake(v, cwd, timeout=600):
+        calls["n"] += 1
+        return VerifierResult(name="hard:true", passed=True, metrics={"passed": 1.0})
+
+    with mock.patch.object(loop_mod, "run_command_verifier", side_effect=fake):
+        g1 = verify_candidate(contract, integ, None, gate_only=True, store=store)
+        assert g1.passed and calls["n"] == 1
+        # simulate resume: a brand-new Integration (cold in-memory cache), same store
+        integ2 = Integration(ws)
+        g2 = verify_candidate(contract, integ2, None, gate_only=True, store=store)
+        assert g2.passed and calls["n"] == 1   # served from the persistent cache
+    store.close()
