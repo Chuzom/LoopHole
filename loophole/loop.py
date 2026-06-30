@@ -21,7 +21,7 @@ import os
 import shutil
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Dict, List, Optional
 
 from .budget import Budget, BudgetExceeded
@@ -61,6 +61,7 @@ class LoopConfig:
     exec_max_steps: int = 12
     shell_timeout: int = 120
     skip_plan_critique: bool = False
+    allow_no_git: bool = False     # opt-in to shared-workspace mode when not a git repo
     on_human: Optional[Callable[[str], bool]] = None   # human checkpoint callback
 
 
@@ -74,13 +75,18 @@ class LoopOutcome:
     detail: str = ""
 
 
-def _baseline_test_total(contract: GoalContract, integ: Integration) -> Optional[float]:
-    """Run hard verifiers once on the starting state to get a test-count baseline."""
+def _baseline_test_total(contract: GoalContract, integ: Integration,
+                         base_commit: Optional[str] = None) -> Optional[float]:
+    """Run hard verifiers once on the ORIGINAL start commit for a test-count baseline.
+
+    C5 fix: checkout the stored ``base_commit`` (not current HEAD) so the baseline
+    stays stable across resume/partial-merge instead of drifting.
+    """
     if not contract.hard_verifiers:
         return None
     tmp = tempfile.mkdtemp(prefix="loophole_base_")
     try:
-        integ.fresh_checkout(tmp, integ.head())
+        integ.fresh_checkout(tmp, base_commit or integ.head())
         total = 0.0
         seen = False
         for v in contract.hard_verifiers:
@@ -91,6 +97,8 @@ def _baseline_test_total(contract: GoalContract, integ: Integration) -> Optional
         return total if seen else None
     except Exception:
         return None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def verify_candidate(contract: GoalContract, integ: Integration,
@@ -115,7 +123,10 @@ def verify_candidate(contract: GoalContract, integ: Integration,
         for v in contract.hard_verifiers:
             r = run_command_verifier(v, cand)
             results.append(r)
-            all_metrics.update(r.metrics)
+            # C4/C6 fix: SUM numeric metrics across verifiers instead of
+            # overwriting, so the candidate total matches the summed baseline.
+            for k, val in r.metrics.items():
+                all_metrics[k] = all_metrics.get(k, 0.0) + val
             hard_pass = hard_pass and r.passed
 
         violations: List[str] = []
@@ -126,16 +137,20 @@ def verify_candidate(contract: GoalContract, integ: Integration,
             violations += check_boundary(contract, base, cand)
         violations += check_test_count(contract, all_metrics, baseline_total)
 
-        # GAP 2 fix: soft verifiers may only VETO when the hard verifiers passed.
+        # N1 fix: a goal with NO hard verifier is automatically "ok" so the loop
+        # can reach its human checkpoint; otherwise every hard verifier must pass.
+        hard_ok = (not contract.hard_verifiers) or hard_pass
+
+        # GAP 2 fix: soft verifiers may only VETO when hard checks are satisfied.
         soft_veto = False
-        if contract.soft_verifiers and hard_pass and not violations:
+        if contract.soft_verifiers and hard_ok and not violations:
             for v in contract.soft_verifiers:
                 sr = evaluate_soft_verifier(v, cand, soft_judge)
                 results.append(sr)
                 if not sr.passed:
                     soft_veto = True
 
-        passed = bool(contract.hard_verifiers) and hard_pass and not violations and not soft_veto
+        passed = hard_ok and not violations and not soft_veto
         failures: List[str] = []
         for r in results:
             failures.extend(r.failures)
@@ -150,9 +165,24 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
              budget: Budget, cfg: LoopConfig,
              log: Optional[Callable[[str], None]] = None) -> LoopOutcome:
     say = log or (lambda m: None)
+    # Work on a private copy so loop-local tweaks (e.g. forcing max_parallel=1 in
+    # shared-workspace mode) never mutate the caller's LoopConfig.
+    cfg = replace(cfg)
     goal_row = store.get_goal(goal_id)
+    if goal_row is None:  # C7 fix: controlled failure on missing/deleted goal
+        raise ValueError("no such goal: {}".format(goal_id))
     workspace = goal_row["workspace"]
-    integ = Integration(workspace)
+    integ = Integration(workspace, allow_no_git=cfg.allow_no_git)
+    # N5 fix: a missing git repo silently collapses all isolation — refuse it
+    # unless the operator explicitly opted in (then force serial execution).
+    if not integ.is_git:
+        if not cfg.allow_no_git:
+            return _finish(store, goal_id, "failed", 0, None, budget, [],
+                           "workspace is not a git repo and isolation is required "
+                           "(pass allow_no_git to run in shared-workspace mode)", say)
+        say("WARNING: no git — running in shared workspace with NO task isolation; "
+            "forcing max_parallel=1")
+        cfg.max_parallel = 1
     # Capture the ORIGINAL start commit once; resume reuses the stored value so the
     # boundary baseline never drifts to a tampered HEAD (GAP 1).
     base_commit: Optional[str] = goal_row["base_commit"]
@@ -171,7 +201,7 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
         except Exception as e:
             say("verifier adversary skipped: {}".format(e))
 
-    baseline_total = _baseline_test_total(contract, integ)
+    baseline_total = _baseline_test_total(contract, integ, base_commit)
     if baseline_total is not None:
         say("baseline test total: {}".format(int(baseline_total)))
 
@@ -220,10 +250,20 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
                     feedback = "plan critic rejected: " + "; ".join(crit.issues)
                     say("plan critic rejected plan: {}".format(crit.issues))
                     continue
+            # N2 fix: namespace task ids per plan round so a replan that reuses
+            # the planner's ids (t1, t2, …) can never collide with an existing
+            # PRIMARY KEY and crash the run. Remap depends_on into the round too.
+            def _rid(pid: str) -> str:
+                return "{}__r{}__{}".format(goal_id, rnd, pid)
             for pt in planned:
-                store.add_task(goal_id, pt.description, depends_on=pt.depends_on,
-                               reads=pt.reads, writes=pt.writes, plan_hash=ph,
-                               task_id="{}__{}".format(goal_id, pt.id))
+                try:
+                    store.add_task(
+                        goal_id, pt.description,
+                        depends_on=[_rid(d) for d in pt.depends_on],
+                        reads=pt.reads, writes=pt.writes, plan_hash=ph,
+                        task_id=_rid(pt.id))
+                except Exception as e:  # never let a storage hiccup crash the run
+                    say("skip duplicate/invalid task {}: {}".format(pt.id, e))
             feedback = None
 
         # ---- promote + admit ---------------------------------------------
@@ -235,6 +275,8 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
             batch = admit_parallel(rdy, cfg.max_parallel)
             say("round {}: executing {} task(s)".format(rnd + 1, len(batch)))
             _run_batch(store, integ, roles, budget, cfg, goal_id, batch, say)
+            # N4: unblock the DAG so a permanently-failed task can't wedge the goal
+            _abandon_unrunnable(store, goal_id, say)
 
         # ---- verify -------------------------------------------------------
         verdict = verify_candidate(contract, integ, baseline_total,
@@ -247,16 +289,26 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
             rnd + 1, "PASS" if verdict.passed else "fail", verdict.metric_score))
 
         if verdict.passed:
-            # human checkpoints, if any
+            work_remaining = any(
+                t.status in ("pending", "ready", "running")
+                for t in store.tasks_for_goal(goal_id))
+            # N1 fix: for a purely human-gated goal (no hard verifier), passed=True
+            # only means "nothing failed" — finish the planned work before asking
+            # the human, so we don't prompt against an empty workspace.
+            if not contract.hard_verifiers and work_remaining:
+                continue  # keep executing remaining tasks
             if contract.human_verifiers and cfg.on_human:
-                for hv in contract.human_verifiers:
-                    if not cfg.on_human(hv.prompt or contract.goal):
-                        feedback = "human rejected at checkpoint"
-                        verdict = None
-                        break
-                else:
+                approved = all(cfg.on_human(hv.prompt or contract.goal)
+                               for hv in contract.human_verifiers)
+                if approved:
                     return _finish(store, goal_id, "done", rnd + 1, verdict, budget,
                                    bypasses, "all verifiers passed", say)
+                feedback = "human rejected at checkpoint"
+                verdict = None
+                # abandon completed work so a fresh plan is generated next round
+                for t in store.tasks_for_goal(goal_id):
+                    if t.status in ("pending", "ready"):
+                        store.set_task_status(t.id, "abandoned", goal_id)
                 continue
             return _finish(store, goal_id, "done", rnd + 1, verdict, budget, bypasses,
                            "all verifiers passed", say)
@@ -272,8 +324,11 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
             stall = 0
         prev_score = score
 
+        # Stall-based replanning needs an OBJECTIVE progress signal, so it only
+        # applies when there are hard verifiers (human-only goals drain their
+        # task list and then ask the human; they rely on max_rounds instead).
         recurring = seen_signatures.get(sig, 0) >= cfg.stall_rounds
-        if stall >= cfg.stall_rounds or recurring:
+        if contract.hard_verifiers and (stall >= cfg.stall_rounds or recurring):
             say("stuck (stall={}, sig x{}) — replanning".format(stall, seen_signatures.get(sig, 0)))
             feedback = "no verifier progress. Current failures: " + \
                        "; ".join(verdict.failures[:6])
@@ -291,6 +346,14 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
                cfg: LoopConfig, goal_id: str, batch: List[Task],
                say: Callable[[str], None]) -> None:
     def work(task: Task) -> None:
+        try:
+            _work_inner(task)
+        except Exception as e:  # N3 fix: a worker raise must not abort the batch
+            attempts = store.get_task(task.id).attempts if store.get_task(task.id) else 99
+            _fail_task(store, integ, task, goal_id, cfg, attempts,
+                       "worker error: {}".format(e), say)
+
+    def _work_inner(task: Task) -> None:
         store.set_task_status(task.id, "running", goal_id)
         attempts = store.incr_attempts(task.id)
         wid = _safe(task.id)
@@ -328,9 +391,40 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
             with integ.git_lock:
                 integ.discard_worktree(wid)
 
-    # bounded thread pool = execution plane
+    # bounded thread pool = execution plane. map() never raises now because work()
+    # swallows+routes worker errors through _fail_task (N3).
     with concurrent.futures.ThreadPoolExecutor(max_workers=cfg.max_parallel) as pool:
         list(pool.map(work, batch))
+
+
+def _abandon_unrunnable(store: Store, goal_id: str, say: Callable[[str], None]) -> bool:
+    """N4 fix: abandon pending/ready tasks whose deps can never complete.
+
+    A task that depends on a failed/abandoned task would block forever (ready_tasks
+    only promotes when deps are 'done'), wedging the goal. Abandoning them lets
+    need_plan() trigger a fresh plan that routes around the failure. Returns True
+    if anything was abandoned.
+    """
+    tasks = store.tasks_for_goal(goal_id)
+    existing = {t.id for t in tasks}
+    dead = {t.id for t in tasks if t.status in ("failed", "abandoned")}
+    changed = False
+    # iterate to a fixpoint so transitive dependents are caught too. A dependency
+    # that is dead OR does not exist at all (e.g. a task that failed to persist)
+    # makes the dependent unrunnable.
+    progress = True
+    while progress:
+        progress = False
+        for t in tasks:
+            if t.status in ("pending", "ready") and any(
+                    (d in dead or d not in existing) for d in t.depends_on):
+                store.set_task_status(t.id, "abandoned", goal_id)
+                dead.add(t.id)
+                changed = progress = True
+        tasks = store.tasks_for_goal(goal_id)
+    if changed:
+        say("abandoned tasks blocked by a failed dependency — will replan")
+    return changed
 
 
 def _fail_task(store: Store, integ: Integration, task: Task, goal_id: str,

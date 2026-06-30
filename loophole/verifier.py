@@ -88,12 +88,27 @@ def parse_pytest(output: str) -> Dict[str, float]:
     return metrics
 
 
+_SECRET_RE = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API)", re.I)
+
+
+def _scrub_env(extra: Dict[str, str]) -> Dict[str, str]:
+    """S2 fix: never hand provider API keys / secrets to verifier subprocesses.
+
+    Verifiers run agent-influenced code (pytest imports the candidate). Passing the
+    full environment lets any dependency exfiltrate ANTHROPIC_API_KEY, cloud creds,
+    etc. We drop anything that looks like a secret and keep the rest (PATH, HOME…).
+    """
+    safe = {k: val for k, val in os.environ.items() if not _SECRET_RE.search(k)}
+    safe.update(extra or {})
+    return safe
+
+
 def run_command_verifier(v: Verifier, cwd: str, timeout: int = 600) -> VerifierResult:
     name = "hard:" + (v.command or "")
     try:
         proc = subprocess.run(v.command, shell=True, cwd=cwd, timeout=timeout,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              text=True, env={**os.environ, **v.environment})
+                              text=True, env=_scrub_env(v.environment))
         output = proc.stdout or ""
         rc = proc.returncode
     except subprocess.TimeoutExpired as e:

@@ -95,3 +95,25 @@ If `_ensure_git()` returns `False` (any `OSError`/git hiccup), `make_worktree` r
 
 ## Honest framing (unchanged from v1)
 loophole proves *"a candidate satisfies the declared contract under a trusted verifier boundary"* — and that boundary is **not yet a security boundary**. Safe only for trusted goals/repos/models on a disposable machine.
+
+---
+
+## Resolution (after fixes + GPT-5.5 re-audit)
+
+| Item | Status |
+|---|---|
+| N1 human-only never completes | ✅ FIXED — `hard_ok` + work-drain before checkpoint; stall-replan gated to hard goals |
+| N2 replan duplicate-id crash | ✅ FIXED — per-round id namespacing + guarded `add_task` |
+| N3 worker exception aborts batch | ✅ FIXED — `work()` try/except → `_fail_task` |
+| N4 failed task wedges DAG | ✅ FIXED — `_abandon_unrunnable` (now also handles **missing** deps) |
+| N5 non-git silent collapse | ✅ FIXED for the real case (git broken/absent ⇒ refuse unless `allow_no_git`, then force serial) |
+| S2 secret exfil to verifier | ✅ FIXED — `_scrub_env` drops KEY/TOKEN/SECRET/… (operator-set `v.environment` is trusted by design) |
+| S3 git-hook RCE | ✅ FIXED — all git via `-c core.hooksPath=/dev/null` |
+| C4/C6 metric clobber | ✅ FIXED — metrics summed across verifiers |
+| C5 baseline drift | ✅ FIXED — baseline from stored `base_commit` |
+| C7 goal_row deref | ✅ FIXED — controlled `ValueError` |
+| C10 loose TASK_COMPLETE | ✅ FIXED — exact-line match (`TASK_COMPLETE` / `TASK_COMPLETE <summary>`) |
+
+**Re-audit also caught (now fixed):** `cfg.max_parallel` mutation leaking to the caller (`replace(cfg)`); `_abandon_unrunnable` missing nonexistent deps.
+
+**Still OPEN (roadmap, by design for v0.1):** S1 OS sandbox for `run_shell`/verifier; enforce per-task write-globs at commit; per-merge re-verification; the soft-judge remains advisory (fail-open) — documented, not a completion control. 39 tests passing.

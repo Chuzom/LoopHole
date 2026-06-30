@@ -74,7 +74,12 @@ def execute_task(provider: Provider, task: Task, worktree: str,
 
         text = comp.text or ""
         msgs.append(Msg("assistant", text))
-        if "TASK_COMPLETE" in text:
+        # C10 fix: require TASK_COMPLETE as an exact line, not a loose substring
+        # (so quoted/"not TASK_COMPLETE" text can't accidentally finish the task).
+        completed = any(line.strip() == "TASK_COMPLETE" or
+                        line.strip().startswith("TASK_COMPLETE ")
+                        for line in text.splitlines())
+        if completed:
             # Reject a completion claim from an agent that never touched a tool:
             # it cannot have changed anything (council critique B — no fake "done").
             if tools_used == 0:

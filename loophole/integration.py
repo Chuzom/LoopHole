@@ -23,8 +23,13 @@ from typing import List, Optional, Tuple
 
 
 def _git(args: List[str], cwd: str, check: bool = True) -> Tuple[int, str]:
-    proc = subprocess.run(["git"] + args, cwd=cwd, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, text=True)
+    # S3 fix: disable repo hooks so agent-written .git/hooks or core.hooksPath can
+    # never execute during our commit/merge lifecycle (git-hook RCE). Also pin a
+    # quiet, non-interactive environment.
+    cmd = ["git", "-c", "core.hooksPath=/dev/null"] + args
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    proc = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True, env=env)
     if check and proc.returncode != 0:
         raise IntegrationError("git {} failed: {}".format(" ".join(args), proc.stdout))
     return proc.returncode, (proc.stdout or "").strip()
@@ -35,10 +40,13 @@ class IntegrationError(RuntimeError):
 
 
 class Integration:
-    def __init__(self, workspace: str):
+    def __init__(self, workspace: str, allow_no_git: bool = True):
         self.workspace = os.path.realpath(workspace)
         os.makedirs(self.workspace, exist_ok=True)
         self.is_git = self._ensure_git()
+        # N5: the caller (run_goal) decides whether a non-git workspace is allowed;
+        # allow_no_git here just records intent for callers that inspect it.
+        self.allow_no_git = allow_no_git
         self._wt_root = os.path.join(self.workspace, ".loophole_worktrees")
         # git index/refs are NOT safe under concurrent mutation (council critique E):
         # serialize all repo-metadata operations while executors run in parallel.
