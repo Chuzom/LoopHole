@@ -117,6 +117,7 @@ loophole run "<goal>" --no-watch                 # plain log (CI / when piping)
 # models route via Chuzom by DEFAULT (planner=chuzom:simple, executor=chuzom:complex);
 # set CHUZOM_URL to route through a live `chuzom-route` server, else local tier policy.
 loophole run "<goal>" --executor-model ollama:qwen3-coder:30b   # or pin a model directly
+loophole stats                                    # your value scorecard — verified, rejections, cheats blocked
 loophole watch --demo                             # self-driving terminal swarm demo (no LLM)
 loophole serve                                    # live web FLEET — all runs, click to drill in
 loophole serve <goal-id>                          # live web Forge for one run

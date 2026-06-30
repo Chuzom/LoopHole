@@ -439,6 +439,10 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
     click.echo(residual_risk_report(
         contract, outcome.verdict, outcome.status, outcome.rounds,
         outcome.budget.summary(), outcome.verifier_bypasses, detail=outcome.detail))
+    from .scorecard import run_scorecard, render_scorecard
+    click.echo()
+    click.echo(render_scorecard(run_scorecard(store, goal_id),
+                                color=sys.stdout.isatty()))
     store.close()
     sys.exit(0 if outcome.status == "done" else 1)
 
@@ -574,6 +578,18 @@ def runs(db: Optional[str]) -> None:
     click.echo(render_runs(store.list_goals(),
                            lambda g: GoalContract.from_json(g["contract"]).goal))
     store.close()
+
+
+@main.command()
+@click.option("--db", default=None)
+def stats(db: Optional[str]) -> None:
+    """Your LoopHole value scorecard across all runs — verified, rejections, cheats blocked."""
+    from .scorecard import aggregate, render_aggregate
+    store = Store(db or _default_db())
+    try:
+        click.echo(render_aggregate(aggregate(store), color=sys.stdout.isatty()))
+    finally:
+        store.close()
 
 
 @main.command(name="ls")
