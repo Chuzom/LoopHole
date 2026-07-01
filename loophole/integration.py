@@ -26,8 +26,17 @@ def _git(args: List[str], cwd: str, check: bool = True) -> Tuple[int, str]:
     # S3 fix: disable repo hooks so agent-written .git/hooks or core.hooksPath can
     # never execute during our commit/merge lifecycle (git-hook RCE). Also pin a
     # quiet, non-interactive environment.
-    cmd = ["git", "-c", "core.hooksPath=/dev/null"] + args
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    # Pin an identity so our internal merge-train commits never fail with "Author
+    # identity unknown" on a machine (or CI) without a global git user.name/email —
+    # these are ephemeral orchestration commits, not the user's authorship. `-c`
+    # overrides only for our invocation; the user's config is untouched.
+    cmd = ["git", "-c", "core.hooksPath=/dev/null",
+           "-c", "user.name=loophole", "-c", "user.email=loophole@localhost"] + args
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0",
+           "GIT_AUTHOR_NAME": os.environ.get("GIT_AUTHOR_NAME", "loophole"),
+           "GIT_AUTHOR_EMAIL": os.environ.get("GIT_AUTHOR_EMAIL", "loophole@localhost"),
+           "GIT_COMMITTER_NAME": os.environ.get("GIT_COMMITTER_NAME", "loophole"),
+           "GIT_COMMITTER_EMAIL": os.environ.get("GIT_COMMITTER_EMAIL", "loophole@localhost")}
     proc = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, text=True, env=env)
     if check and proc.returncode != 0:
