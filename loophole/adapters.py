@@ -85,6 +85,8 @@ class ClaudeCodeExecutor(Executor):
                 ctx.step("claude-code", name)
         summary = (final or res.output or "").strip()[:300] or (
             "claude-code ok" if res.ok else "claude-code failed")
+        from .executor import _log_network_denials
+        _log_network_denials(belt, ctx)
         return ExecResult(ok=res.ok, summary=summary, steps=len(steps) or 1)
 
 

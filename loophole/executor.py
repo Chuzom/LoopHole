@@ -196,7 +196,16 @@ class CommandExecutor(Executor):
             pass
         summary = ("external agent ok: " if result.ok else "external agent failed: ") \
             + str(result.output)[:240]
+        _log_network_denials(belt, ctx)
         return ExecResult(ok=result.ok, summary=summary, steps=1)
+
+
+def _log_network_denials(belt: Toolbelt, ctx: Optional["ExecContext"]) -> None:
+    """Denied egress attempts are boundary decisions — put them in the audit trail."""
+    if belt.network_denials and ctx is not None and getattr(ctx, "store", None):
+        ctx.store.log("executor_network_denied", goal_id=ctx.goal_id,
+                      task_id=ctx.task_id,
+                      payload={"hosts": sorted(set(belt.network_denials))})
 
 
 def execute_task(provider: Provider, task: Task, worktree: str,

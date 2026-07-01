@@ -193,10 +193,11 @@ loophole run "<goal>" --executor claude-code   # runs `claude -p` per task, stre
 > auth; API-key auth via `--executor-secret` keeps working sandboxed). Generic
 > `--executor-command` executors are always fully OS-sandboxed by default.
 
-For an API-calling framework, open network access for it without touching the
-filesystem sandbox — `--executor-network` records the hosts for the audit trail, but
-egress is currently **all-or-nothing** (per-host scoping needs an egress-proxy
-sidecar, on the roadmap):
+For an API-calling framework, grant scoped egress without touching the filesystem
+sandbox — on macOS `--executor-network` is **enforced**: the jail's network is
+localhost-only and traffic tunnels through a host-allowlisted egress proxy (denied
+hosts are 403'd and land in the audit trail). On Linux/bubblewrap egress is still
+all-or-nothing (netns scoping is on the roadmap):
 
 ```bash
 loophole run "<goal>" --executor claude-code \

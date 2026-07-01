@@ -98,8 +98,12 @@ class Toolbelt:
         self.trusted = trusted
         # Phase 1: a framework-agent executor may need SCOPED egress to its API +
         # ITS api key. Both empty by default (network denied, all secrets scrubbed).
+        # On Seatbelt, declared hosts are ENFORCED: the jail is localhost-only and
+        # egress tunnels through a host-allowlisted proxy (loophole.egress_proxy).
         self.network_hosts = tuple(network_hosts)
         self.pass_env = tuple(pass_env)
+        self.network_denials: list = []   # hostnames the proxy refused (audit)
+        self._egress = None
         # SEC-2: run_shell is the UNTRUSTED agent shell — confine its reads by
         # default so it can't `cat ~/.ssh/id_rsa` and persist host secrets into the
         # task DB. Overridable for commands that legitimately need broader reads.
@@ -111,6 +115,25 @@ class Toolbelt:
         # agents don't dead-loop on 'command not found'. Trusted executors run
         # outside the OS sandbox, so only a genuinely missing `python` needs one.
         self._shim_dir = _python_shim_dir(confine_reads and not trusted)
+
+    # ---- egress proxy ------------------------------------------------------
+    def _egress_proxy(self):
+        """Start (once) the host-allowlisted egress proxy — Seatbelt only.
+
+        The proxy runs OUTSIDE the jail; the Seatbelt profile then limits the
+        jail to localhost, so declared hosts are actually enforced. bwrap and
+        trusted executors keep the previous behavior (all-or-nothing egress)."""
+        if not self.network_hosts or self.trusted:
+            return None
+        from ..sandbox import mechanism
+        if mechanism() != "seatbelt":
+            return None
+        if self._egress is None:
+            from ..egress_proxy import EgressProxy
+            self._egress = EgressProxy(self.network_hosts,
+                                       on_deny=self.network_denials.append)
+            self._egress.start()
+        return self._egress
 
     # ---- path safety -----------------------------------------------------
     def _resolve(self, path: str) -> str:
@@ -149,6 +172,7 @@ class Toolbelt:
         # network) and never hand it provider secrets. shell semantics are
         # preserved INSIDE the jail by the wrapped `/bin/sh -c` invocation.
         extra_writable = (self._shim_dir,) if self._shim_dir else ()
+        proxy = self._egress_proxy()
         if self.trusted:
             # A trusted framework agent runs OUTSIDE the OS sandbox so it can reach
             # its own credential store (e.g. the keychain for a subscription login).
@@ -161,6 +185,7 @@ class Toolbelt:
                                           confine_reads=self.confine_reads,
                                           allow_network=bool(self.network_hosts),
                                           allowed_hosts=self.network_hosts,
+                                          proxy_port=proxy.port if proxy else None,
                                           extra_writable=extra_writable,
                                           pass_env=self.pass_env))
             except SandboxUnavailable as e:
@@ -173,6 +198,8 @@ class Toolbelt:
             env.pop("__PYVENV_LAUNCHER__", None)
         if self._shim_dir:                       # put the `python` shim first on PATH
             env["PATH"] = self._shim_dir + os.pathsep + env.get("PATH", "")
+        if proxy is not None:                    # route the jail's egress via the proxy
+            env.update(proxy.env())
         try:
             proc = subprocess.Popen(
                 argv, cwd=self.root,

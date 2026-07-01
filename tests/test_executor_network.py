@@ -16,13 +16,22 @@ def _profile(**kw):
 
 
 def test_seatbelt_allows_network_when_enabled():
-    # host-scoping is NOT enforced (no OS sandbox scopes egress by hostname), so
-    # declaring hosts just enables all-net — and the profile must stay VALID (no
-    # bogus `(remote tcp "host")` that sandbox-exec rejects).
+    # without a proxy (e.g. a verifier's allow_network), egress stays
+    # all-or-nothing — and the profile must stay VALID (no bogus
+    # `(remote tcp "host")` that sandbox-exec rejects).
     prof = _profile(allow_network=True, allowed_hosts=("api.anthropic.com",))
     assert "(allow network*)" in prof
     assert "remote tcp" not in prof            # not the invalid per-host syntax
     assert "(allow network*)" in _profile(allow_network=True)
+
+
+def test_seatbelt_with_proxy_is_localhost_only():
+    # with the egress proxy, the jail may reach ONLY localhost — real egress
+    # goes through the host-allowlisted proxy outside the jail.
+    prof = _profile(allow_network=True, allowed_hosts=("api.anthropic.com",),
+                    proxy_port=54321)
+    assert "(allow network*)" not in prof
+    assert '(allow network-outbound (remote ip "localhost:*"))' in prof
 
 
 def test_seatbelt_denies_by_default():
@@ -88,3 +97,11 @@ def test_network_enabled_reaches_a_host_and_confines_fs():
     tb2 = T.Toolbelt("/tmp", timeout=10)
     r2 = tb2.run_shell('curl -s -m 6 -o /dev/null -w "%{http_code}" https://example.com')
     assert not r2.ok or "200" not in r2.output
+    # and that the allowlist actually SCOPES: a non-allowlisted host is refused
+    # by the egress proxy (Seatbelt path) and the denial is captured for audit
+    from loophole.sandbox import mechanism as _mech
+    if _mech() == "seatbelt":
+        r3 = tb.run_shell(
+            'curl -s -m 8 -o /dev/null -w "%{http_code}" https://www.google.com')
+        assert "200" not in r3.output, "non-allowlisted host escaped the proxy"
+        assert "www.google.com" in tb.network_denials

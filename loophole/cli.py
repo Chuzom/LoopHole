@@ -411,9 +411,11 @@ def contract_show(path: str) -> None:
               help="Use a registered framework ADAPTER as each swarm worker "
                    "(see `loophole executor list`). The verifier boundary is unchanged.")
 @click.option("--executor-network", default=None,
-              help="Enable network for the executor (for API-calling agents). Declare "
-                   "the hosts (audit); egress is currently ALL-or-nothing — per-host "
-                   "scoping needs the egress proxy (roadmap). Filesystem stays confined.")
+              help="Comma-separated hosts the executor may reach (for API-calling "
+                   "agents). ENFORCED on macOS: the jail is localhost-only and egress "
+                   "tunnels through a host-allowlisted proxy; denials are audited. On "
+                   "Linux/bwrap egress is still all-or-nothing (declared hosts are "
+                   "audit-only). Filesystem stays confined either way.")
 @click.option("--executor-secret", default=None,
               help="Comma-separated env vars to pass through to the executor "
                    "(e.g. ANTHROPIC_API_KEY); every other secret stays scrubbed.")

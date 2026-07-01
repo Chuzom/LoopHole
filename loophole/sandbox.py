@@ -29,7 +29,7 @@ import re
 import shutil
 import sys
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 # RLIMIT backstops applied inside the sandbox shell against resource-exhaustion
@@ -67,11 +67,14 @@ class SandboxPolicy:
     allow_unsandboxed: bool = False
     confine_reads: bool = False   # EXPERIMENTAL (Seatbelt only): restrict reads to
                                   # system dirs + the worktree (blocks ~/.ssh etc.)
-    allowed_hosts: Tuple[str, ...] = ()   # recorded for AUDIT; NOT enforced yet — no OS
-                                          # sandbox scopes egress by hostname (Seatbelt:
-                                          # "host must be * or localhost"; bwrap needs a
-                                          # proxy). True per-host scoping = egress-proxy
-                                          # sidecar (roadmap). Today: all-or-nothing net.
+    allowed_hosts: Tuple[str, ...] = ()   # recorded for AUDIT. Enforced on Seatbelt when
+                                          # proxy_port is set (jail = localhost-only, the
+                                          # allowlisted egress proxy runs outside it);
+                                          # bwrap remains all-or-nothing (netns work TBD).
+    proxy_port: Optional[int] = None      # egress-proxy port on 127.0.0.1: when set with
+                                          # allow_network, Seatbelt permits outbound to
+                                          # localhost ONLY — real egress goes through the
+                                          # host-allowlisted proxy (loophole.egress_proxy)
     pass_env: Tuple[str, ...] = ()        # secret env vars to KEEP (e.g. a framework's
                                           # ANTHROPIC_API_KEY); all others still scrubbed
 
@@ -189,13 +192,18 @@ def _seatbelt_profile(root: str, policy: SandboxPolicy) -> str:
                 "/dev/stdout", "/dev/stderr", "/dev/random", "/dev/urandom"):
         lines.append('(allow file-write-data (literal "{}"))'.format(dev))
         lines.append('(allow file-ioctl (literal "{}"))'.format(dev))
-    # NOTE: Seatbelt cannot scope egress by hostname ("host must be * or localhost"),
-    # and bwrap can't either without a netns/proxy — so `allowed_hosts` is recorded
-    # for audit but NOT enforced here; egress is all-or-nothing. True per-host scoping
-    # needs the egress-proxy sidecar (roadmap). The win Phase 1 DOES deliver: network
-    # for a framework agent WITHOUT dropping filesystem confinement (vs allow_unsandboxed).
+    # Seatbelt cannot scope egress by hostname ("host must be * or localhost") —
+    # but it CAN scope to localhost. With proxy_port set, the jail may only reach
+    # local addresses; real egress goes through the host-allowlisted egress proxy
+    # running OUTSIDE the jail (loophole.egress_proxy), advertised via HTTP(S)_PROXY.
+    # Without a proxy (bwrap, or a verifier's allow_network), egress stays
+    # all-or-nothing and allowed_hosts remains audit-only.
     if policy.allow_network:
-        lines.append("(allow network*)")
+        if policy.proxy_port:
+            lines.append('(allow network-outbound (remote ip "localhost:*"))')
+            lines.append('(allow network* (local ip "localhost:*"))')
+        else:
+            lines.append("(allow network*)")
     else:
         lines.append("(deny network*)")
     return "\n".join(lines) + "\n"

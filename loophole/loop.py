@@ -302,15 +302,23 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
     from . import plugins, executors
     plugins.load_modules()      # discover installed modules (idempotent)
     executors.load_executors()  # discover installed executor adapters (idempotent)
-    if cfg.executor_network:    # Phase 1: record the network grant (audit) + honest warn
+    if cfg.executor_network:    # record the network grant (audit) + honest status
+        from .sandbox import mechanism
+        enforced = mechanism() == "seatbelt"
         store.log("executor_network", goal_id=goal_id,
                   payload={"hosts": list(cfg.executor_network),
-                           "keys": list(cfg.executor_secrets), "enforced": False})
-        say("executor network ENABLED to ALL hosts (declared: {}). Host-scoping isn't "
-            "enforced yet — no OS sandbox scopes egress by hostname; that needs the "
-            "egress proxy (roadmap). Filesystem stays confined + only {} passed through."
-            .format(", ".join(cfg.executor_network) or "-",
-                    ", ".join(cfg.executor_secrets) or "no secrets"))
+                           "keys": list(cfg.executor_secrets), "enforced": enforced})
+        if enforced:
+            say("executor network scoped to {} — enforced: the jail is localhost-only "
+                "and egress tunnels through the allowlisted proxy. Only {} passed "
+                "through.".format(", ".join(cfg.executor_network),
+                                  ", ".join(cfg.executor_secrets) or "no secrets"))
+        else:
+            say("executor network ENABLED to ALL hosts (declared: {}). Host-scoping "
+                "isn't enforced on this platform (bwrap netns TBD); Seatbelt hosts get "
+                "the egress proxy. Filesystem stays confined + only {} passed through."
+                .format(", ".join(cfg.executor_network) or "-",
+                        ", ".join(cfg.executor_secrets) or "no secrets"))
     # Work on a private copy so loop-local tweaks (e.g. forcing max_parallel=1 in
     # shared-workspace mode) never mutate the caller's LoopConfig.
     cfg = replace(cfg)

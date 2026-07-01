@@ -26,6 +26,9 @@ _GLYPH = {
     "write_glob_violation": "!",
     "soft_fail_closed": "?",
     "verifier_bypasses": "!",
+    "executor_network": "⇄",
+    "executor_network_denied": "⛔",
+    "auto_protect": "🛡",
 }
 
 
