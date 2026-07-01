@@ -46,3 +46,26 @@ def test_explicit_rejection_carries_issues():
         _contract(), _plan())
     assert crit.approved is False
     assert "t1 writes too broadly" in crit.issues
+
+
+class _DownJudge(Provider):
+    """Provider whose backend is unreachable (timeout / outage)."""
+    name = "down"
+
+    def complete(self, msgs, tools=None, max_tokens=4096, temperature=0.2):
+        from loophole.provider import ProviderError
+        raise ProviderError("connection timed out")
+
+
+def test_critic_provider_error_fails_closed():
+    res = critique_plan(_DownJudge(), _contract(), _plan())
+    assert res.approved is False
+    assert any("unavailable" in i for i in res.issues)
+
+
+def test_planner_provider_error_becomes_planner_error():
+    from loophole.planner import make_plan, PlannerError
+    import pytest
+    with pytest.raises(PlannerError) as exc:
+        make_plan(_DownJudge(), _contract())
+    assert "connection timed out" in str(exc.value)

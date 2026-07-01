@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 from .contract import GoalContract
-from .provider import Provider, Msg
+from .provider import Provider, ProviderError, Msg
 from .scheduler import PlannedTask
 
 
@@ -59,8 +59,18 @@ def critique_plan(provider: Provider, contract: GoalContract,
     ]
     user = "GOAL:\n{}\n\nPROPOSED PLAN:\n{}".format(
         contract.goal, json.dumps(plan_repr, indent=2))
-    comp = provider.complete([Msg("system", _CRITIC_SYSTEM), Msg("user", user)],
-                             temperature=0.2)
+    try:
+        comp = provider.complete([Msg("system", _CRITIC_SYSTEM), Msg("user", user)],
+                                 temperature=0.2)
+    except ProviderError as e:
+        # Fail-closed, same as an unparseable verdict: a critic that can't run
+        # does NOT approve the plan (and never crashes the round). The degenerate-
+        # plan / max-rounds circuit breakers bound the loop if it stays down.
+        return CritiqueResult(
+            approved=False,
+            issues=["plan critic unavailable ({}); rejecting to be safe".format(e)],
+            raw="",
+        )
     d = _json(comp.text)
     approved = d.get("approved")
     if not isinstance(approved, bool):

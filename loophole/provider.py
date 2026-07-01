@@ -72,6 +72,16 @@ class Provider(ABC):
                (c.completion_tokens / 1000.0) * self.price_out
 
 
+def _llm_timeout() -> float:
+    """Per-call LLM timeout in seconds (LOOPHOLE_LLM_TIMEOUT_S, default 600).
+    Bounds every provider call so a hung model server fails the call (which the
+    planner retries and the critic treats fail-closed) instead of hanging a round."""
+    try:
+        return float(os.environ.get("LOOPHOLE_LLM_TIMEOUT_S", "600"))
+    except ValueError:
+        return 600.0
+
+
 class ProviderError(RuntimeError):
     pass
 
@@ -104,7 +114,7 @@ class OllamaProvider(Provider):
             self.base_url + "/api/chat", data=data,
             headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=600) as resp:
+            with urllib.request.urlopen(req, timeout=_llm_timeout()) as resp:
                 body = json.loads(resp.read().decode())
         except urllib.error.URLError as e:
             raise ProviderError(
@@ -148,7 +158,9 @@ class AnthropicProvider(Provider):
             raise ProviderError("anthropic not installed: pip install 'loophole[anthropic]'") from e
         import anthropic
         self.model = model
-        self._client = anthropic.Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
+        self._client = anthropic.Anthropic(
+            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"),
+            timeout=_llm_timeout())
 
     def complete(self, msgs: List[Msg], tools: Optional[List[dict]] = None,
                  max_tokens: int = 4096, temperature: float = 0.2) -> Completion:
@@ -200,7 +212,9 @@ class OpenAIProvider(Provider):
             raise ProviderError("openai not installed: pip install 'loophole[openai]'") from e
         import openai
         self.model = model
-        self._client = openai.OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
+        self._client = openai.OpenAI(
+            api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+            timeout=_llm_timeout())
 
     def complete(self, msgs: List[Msg], tools: Optional[List[dict]] = None,
                  max_tokens: int = 4096, temperature: float = 0.2) -> Completion:
@@ -299,7 +313,7 @@ class ChuzomProvider(Provider):
             payload["temperature"] = temperature
         req = urllib.request.Request(url, data=json.dumps(payload).encode(),
                                      headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=600) as r:
+        with urllib.request.urlopen(req, timeout=_llm_timeout()) as r:
             data = json.loads(r.read().decode())
         tool_calls: List[ToolCall] = []
         for i, tc in enumerate(data.get("tool_calls") or []):

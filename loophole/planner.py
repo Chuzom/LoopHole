@@ -15,7 +15,7 @@ import re
 from typing import List, Optional
 
 from .contract import GoalContract
-from .provider import Provider, Msg
+from .provider import Provider, ProviderError, Msg
 from .scheduler import PlannedTask, validate_dag, DagError
 
 
@@ -85,8 +85,11 @@ def make_plan(provider: Provider, contract: GoalContract,
     for attempt in range(max_retries):
         msgs = [Msg("system", PLANNER_SYSTEM),
                 Msg("user", user + (("\n\nValidator error: " + last_err) if last_err else ""))]
-        comp = provider.complete(msgs, temperature=0.3)
         try:
+            # inside the retry loop: a provider timeout/outage is retried like a
+            # malformed plan, then surfaces as a clean PlannerError (never an
+            # unhandled crash out of run_goal).
+            comp = provider.complete(msgs, temperature=0.3)
             raw = _extract_json_array(comp.text)
             tasks = [
                 PlannedTask(
@@ -102,7 +105,7 @@ def make_plan(provider: Provider, contract: GoalContract,
                 raise ValueError("empty plan")
             validate_dag(tasks)
             return tasks
-        except (ValueError, KeyError, DagError, json.JSONDecodeError) as e:
+        except (ValueError, KeyError, DagError, json.JSONDecodeError, ProviderError) as e:
             last_err = str(e)
             continue
     raise PlannerError("planner failed to produce a valid DAG after {} attempts: {}"
