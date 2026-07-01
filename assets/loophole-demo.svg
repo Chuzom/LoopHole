@@ -1,7 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 380" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 500" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15">
   <defs>
     <style>
-      .l { opacity: 0; }
       .dim { fill: #8b949e; }
       .txt { fill: #c9d1d9; }
       .grn { fill: #3fb950; }
@@ -13,41 +12,52 @@
   </defs>
 
   <!-- window -->
-  <rect x="1" y="1" width="758" height="378" rx="12" fill="#0d1117" stroke="#30363d"/>
-  <rect x="1" y="1" width="758" height="40" rx="12" fill="#161b22"/>
-  <rect x="1" y="28" width="758" height="14" fill="#161b22"/>
+  <rect x="1" y="1" width="878" height="498" rx="12" fill="#0d1117" stroke="#30363d"/>
+  <rect x="1" y="1" width="878" height="40" rx="12" fill="#161b22"/>
+  <rect x="1" y="28" width="878" height="14" fill="#161b22"/>
   <circle cx="24" cy="21" r="6" fill="#f85149"/>
   <circle cx="46" cy="21" r="6" fill="#d29922"/>
   <circle cx="68" cy="21" r="6" fill="#3fb950"/>
-  <text x="380" y="26" text-anchor="middle" class="dim" font-size="13">loophole demo — a check decides "done"</text>
+  <text x="440" y="26" text-anchor="middle" class="dim" font-size="13">loophole — the swarm can't argue its way to "done"</text>
 
-  <!-- prompt + command -->
-  <text x="24" y="78"><tspan class="grn">$</tspan> <tspan class="txt">loophole demo</tspan></text>
+  <!-- command (persistent) -->
+  <text x="22" y="74"><tspan class="grn">$</tspan> <tspan class="txt">loophole run </tspan><tspan class="amb">"Todo REST API — CRUD + JWT auth · pytest green · GET /health → 200"</tspan></text>
 
-  <!-- animated lines (each fades in on schedule; all reset at loop end) -->
-  <g class="l"><text x="24" y="120"><tspan class="dim">•</tspan> <tspan class="txt">agent writes add(a,b): </tspan><tspan class="amb">return a - b</tspan></text>
-    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.09;0.12;0.97;1"/></g>
+  <g opacity="0"><text x="22" y="108"><tspan class="pur b">🧭 planner</tspan> <tspan class="txt">→ 6-task DAG:</tspan> <tspan class="dim">models · routes · auth · migrations · tests · healthcheck</tspan></text>
+    <animate attributeName="opacity" dur="15s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.05;0.08;0.97;1"/></g>
 
-  <g class="l"><text x="24" y="152"><tspan class="dim">•</tspan> <tspan class="txt">agent: </tspan><tspan class="b txt">"Done! ✅"</tspan></text>
-    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.16;0.19;0.97;1"/></g>
+  <g opacity="0"><text x="22" y="140"><tspan class="pur b">⚙ swarm</tspan> <tspan class="txt">3 agents build in isolated git worktrees, in parallel</tspan> <tspan class="dim">…merging one at a time</tspan></text>
+    <animate attributeName="opacity" dur="15s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.12;0.15;0.97;1"/></g>
 
-  <g class="l"><text x="24" y="184"><tspan class="dim">•</tspan> <tspan class="txt">verify: </tspan><tspan class="dim">assert add(2,3)==5</tspan>  <tspan class="red b">✗ FAIL</tspan></text>
-    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.27;0.30;0.97;1"/></g>
+  <g opacity="0"><text x="22" y="176"><tspan class="dim">•</tspan> <tspan class="txt">agent-2:</tspan> <tspan class="b txt">"All tests pass! ✅"</tspan> <tspan class="dim">…but it deleted the 2 tests that were failing</tspan></text>
+    <animate attributeName="opacity" dur="15s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.22;0.25;0.97;1"/></g>
 
-  <g class="l"><text x="24" y="216"><tspan class="amb b">✗</tspan> <tspan class="amb">loophole REJECTS the claim — the agent doesn't get to decide.</tspan></text>
-    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.38;0.41;0.97;1"/></g>
+  <g opacity="0"><text x="22" y="208"><tspan class="red b">✗ test-count audit</tspan> <tspan class="txt">40 → 38 : the suite shrank —</tspan> <tspan class="red b">candidate REJECTED</tspan></text>
+    <animate attributeName="opacity" dur="15s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.31;0.34;0.97;1"/></g>
 
-  <g class="l"><text x="24" y="256"><tspan class="dim">•</tspan> <tspan class="txt">fix applied: </tspan><tspan class="grn">return a + b</tspan></text>
-    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.52;0.55;0.97;1"/></g>
+  <g opacity="0"><text x="22" y="244"><tspan class="dim">•</tspan> <tspan class="txt">agent-3 edited</tspan> <tspan class="amb">tests/test_auth.py</tspan> <tspan class="txt">(protected)</tspan></text>
+    <animate attributeName="opacity" dur="15s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.40;0.43;0.97;1"/></g>
 
-  <g class="l"><text x="24" y="288"><tspan class="dim">•</tspan> <tspan class="txt">verify: </tspan><tspan class="dim">assert add(2,3)==5</tspan>  <tspan class="grn b">✓ PASS</tspan></text>
-    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.63;0.66;0.97;1"/></g>
+  <g opacity="0"><text x="22" y="272"><tspan class="red b">✗ verification boundary</tspan> <tspan class="txt">protected file changed vs base commit —</tspan> <tspan class="red b">merge REJECTED</tspan></text>
+    <animate attributeName="opacity" dur="15s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.46;0.49;0.97;1"/></g>
 
-  <g class="l"><text x="24" y="328"><tspan class="grn b">✓ VERIFIED DONE</tspan>  <tspan class="dim">— a check said so, not the agent.</tspan></text>
-    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.74;0.78;0.97;1"/></g>
+  <g opacity="0"><text x="22" y="308"><tspan class="amb b">↻ re-plan</tspan> <tspan class="txt">route around the dead ends, retry the honest work…</tspan></text>
+    <animate attributeName="opacity" dur="15s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.55;0.58;0.97;1"/></g>
+
+  <g opacity="0"><text x="22" y="344"><tspan class="grn b">✓</tspan> <tspan class="txt">verify (fresh checkout):</tspan> <tspan class="dim">pytest -q</tspan> <tspan class="grn b">→ 42 passed</tspan></text>
+    <animate attributeName="opacity" dur="15s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.64;0.67;0.97;1"/></g>
+
+  <g opacity="0"><text x="22" y="372"><tspan class="grn b">✓</tspan> <tspan class="txt">verify:</tspan> <tspan class="dim">curl -s -o /dev/null -w '%{http_code}' /health</tspan> <tspan class="grn b">→ 200</tspan></text>
+    <animate attributeName="opacity" dur="15s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.71;0.74;0.97;1"/></g>
+
+  <g opacity="0"><text x="22" y="410"><tspan class="grn b">✓ VERIFIED DONE</tspan> <tspan class="dim">— 2 verifiers passed · 2 cheats blocked · a check decided, not the agent.</tspan></text>
+    <animate attributeName="opacity" dur="15s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.80;0.84;0.97;1"/></g>
+
+  <g opacity="0"><text x="22" y="440"><tspan class="dim">residual-risk report: security &amp; performance beyond the verifiers remain unproven.</tspan></text>
+    <animate attributeName="opacity" dur="15s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.87;0.90;0.97;1"/></g>
 
   <!-- blinking cursor -->
-  <rect x="24" y="346" width="10" height="19" fill="#c9d1d9">
+  <rect x="22" y="462" width="9" height="18" fill="#c9d1d9">
     <animate attributeName="opacity" values="1;1;0;0" dur="1s" repeatCount="indefinite"/>
   </rect>
 </svg>

@@ -40,7 +40,7 @@
 ## ▶️ See it work in 10 seconds — no setup, no API key
 
 <div align="center">
-<img src="assets/loophole-demo.svg" alt="loophole demo: a naive agent says 'Done!' on buggy code, the check FAILS and loophole rejects it, then after the fix the check passes and only then is it VERIFIED DONE" width="760">
+<img src="assets/loophole-demo.svg" alt="loophole running a Todo REST API build: a swarm of agents works in parallel; one agent deletes failing tests and another edits a protected test file — both cheats are rejected by the test-count audit and the verification boundary; after a re-plan, pytest and a /health curl both pass, and only then is it VERIFIED DONE" width="820">
 </div>
 
 Both demos are fully self-contained — **no LLM, no keys, no config:**
