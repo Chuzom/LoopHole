@@ -35,12 +35,17 @@ class ToolResult:
 
 class Toolbelt:
     def __init__(self, root: str, timeout: int = 120, allow_unsandboxed: bool = False,
-                 confine_reads: bool = True):
+                 confine_reads: bool = True, network_hosts: tuple = (),
+                 pass_env: tuple = ()):
         self.root = os.path.realpath(root)
         self.timeout = timeout
         # Fail-closed by default: if no OS sandbox is available, run_shell refuses
         # rather than running unconfined. The operator may opt out explicitly.
         self.allow_unsandboxed = allow_unsandboxed
+        # Phase 1: a framework-agent executor may need SCOPED egress to its API +
+        # ITS api key. Both empty by default (network denied, all secrets scrubbed).
+        self.network_hosts = tuple(network_hosts)
+        self.pass_env = tuple(pass_env)
         # SEC-2: run_shell is the UNTRUSTED agent shell — confine its reads by
         # default so it can't `cat ~/.ssh/id_rsa` and persist host secrets into the
         # task DB. Overridable for commands that legitimately need broader reads.
@@ -85,14 +90,18 @@ class Toolbelt:
         try:
             argv = wrap(command, self.root,
                         SandboxPolicy(allow_unsandboxed=self.allow_unsandboxed,
-                                      confine_reads=self.confine_reads))
+                                      confine_reads=self.confine_reads,
+                                      allow_network=bool(self.network_hosts),
+                                      allowed_hosts=self.network_hosts,
+                                      pass_env=self.pass_env))
         except SandboxUnavailable as e:
             return ToolResult(False, "sandbox unavailable: {}".format(e))
         try:
             proc = subprocess.Popen(
                 argv, cwd=self.root,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                start_new_session=True, text=True, env=scrub_env({}))
+                start_new_session=True, text=True,
+                env=scrub_env({}, keep=self.pass_env))
         except OSError as e:
             return ToolResult(False, "spawn failed: {}".format(e))
         try:

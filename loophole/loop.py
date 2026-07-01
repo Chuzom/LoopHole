@@ -68,6 +68,8 @@ class LoopConfig:
                                             # (e.g. 'claude -p {task}'); None = ReAct
     executor_name: Optional[str] = None     # a registered framework adapter (--executor)
     executor_config: dict = field(default_factory=dict)  # adapter knobs
+    executor_network: tuple = ()            # hosts the executor may reach (scoped egress)
+    executor_secrets: tuple = ()            # env vars to pass through to the executor
 
 
 @dataclass
@@ -297,6 +299,15 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
     from . import plugins, executors
     plugins.load_modules()      # discover installed modules (idempotent)
     executors.load_executors()  # discover installed executor adapters (idempotent)
+    if cfg.executor_network:    # Phase 1: record the network grant (audit) + honest warn
+        store.log("executor_network", goal_id=goal_id,
+                  payload={"hosts": list(cfg.executor_network),
+                           "keys": list(cfg.executor_secrets), "enforced": False})
+        say("executor network ENABLED to ALL hosts (declared: {}). Host-scoping isn't "
+            "enforced yet — no OS sandbox scopes egress by hostname; that needs the "
+            "egress proxy (roadmap). Filesystem stays confined + only {} passed through."
+            .format(", ".join(cfg.executor_network) or "-",
+                    ", ".join(cfg.executor_secrets) or "no secrets"))
     # Work on a private copy so loop-local tweaks (e.g. forcing max_parallel=1 in
     # shared-workspace mode) never mutate the caller's LoopConfig.
     cfg = replace(cfg)
@@ -545,10 +556,14 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
                 from .executors import resolve_executor
                 executor = resolve_executor(cfg.executor_name, {
                     "command": cfg.executor_command, "provider": roles.executor,
-                    "shell_timeout": cfg.shell_timeout, **cfg.executor_config})
+                    "shell_timeout": cfg.shell_timeout,
+                    "network_hosts": cfg.executor_network,
+                    "pass_env": cfg.executor_secrets, **cfg.executor_config})
             elif cfg.executor_command:
                 executor = CommandExecutor(cfg.executor_command,
-                                           shell_timeout=cfg.shell_timeout)
+                                           shell_timeout=cfg.shell_timeout,
+                                           network_hosts=cfg.executor_network,
+                                           pass_env=cfg.executor_secrets)
             else:
                 executor = ReActExecutor(roles.executor, max_steps=cfg.exec_max_steps,
                                          shell_timeout=cfg.shell_timeout)

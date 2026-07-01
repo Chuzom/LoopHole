@@ -67,6 +67,13 @@ class SandboxPolicy:
     allow_unsandboxed: bool = False
     confine_reads: bool = False   # EXPERIMENTAL (Seatbelt only): restrict reads to
                                   # system dirs + the worktree (blocks ~/.ssh etc.)
+    allowed_hosts: Tuple[str, ...] = ()   # recorded for AUDIT; NOT enforced yet — no OS
+                                          # sandbox scopes egress by hostname (Seatbelt:
+                                          # "host must be * or localhost"; bwrap needs a
+                                          # proxy). True per-host scoping = egress-proxy
+                                          # sidecar (roadmap). Today: all-or-nothing net.
+    pass_env: Tuple[str, ...] = ()        # secret env vars to KEEP (e.g. a framework's
+                                          # ANTHROPIC_API_KEY); all others still scrubbed
 
 
 _SECRET_RE = re.compile(
@@ -77,17 +84,23 @@ _SECRET_RE = re.compile(
 _CRED_URL_RE = re.compile(r"://[^@\s/]+:[^@\s/]+@")
 
 
-def scrub_env(extra: Dict[str, str]) -> Dict[str, str]:
+def scrub_env(extra: Dict[str, str], keep: Tuple[str, ...] = ()) -> Dict[str, str]:
     """Never hand provider API keys / secrets to a sandboxed subprocess.
 
     Both sinks run agent-influenced code (``run_shell`` runs raw LLM output; the
     verifier imports candidate files via pytest). Passing the full environment
     would let any command or dependency read ANTHROPIC_API_KEY, cloud creds, etc.
     We drop anything that looks like a secret and keep the rest (PATH, HOME…).
-    Defence-in-depth alongside the OS sandbox's network deny.
+
+    ``keep`` is an explicit allowlist of secret env vars to pass through anyway —
+    used only for a first-class executor adapter that genuinely needs ITS key (e.g.
+    a Claude Code agent needs ANTHROPIC_API_KEY). Everything else stays scrubbed.
     """
     safe = {k: val for k, val in os.environ.items()
             if not _SECRET_RE.search(k) and not _CRED_URL_RE.search(val or "")}
+    for k in keep:
+        if k in os.environ:
+            safe[k] = os.environ[k]
     safe.update(extra or {})
     return safe
 
@@ -176,6 +189,11 @@ def _seatbelt_profile(root: str, policy: SandboxPolicy) -> str:
                 "/dev/stdout", "/dev/stderr", "/dev/random", "/dev/urandom"):
         lines.append('(allow file-write-data (literal "{}"))'.format(dev))
         lines.append('(allow file-ioctl (literal "{}"))'.format(dev))
+    # NOTE: Seatbelt cannot scope egress by hostname ("host must be * or localhost"),
+    # and bwrap can't either without a netns/proxy — so `allowed_hosts` is recorded
+    # for audit but NOT enforced here; egress is all-or-nothing. True per-host scoping
+    # needs the egress-proxy sidecar (roadmap). The win Phase 1 DOES deliver: network
+    # for a framework agent WITHOUT dropping filesystem confinement (vs allow_unsandboxed).
     if policy.allow_network:
         lines.append("(allow network*)")
     else:

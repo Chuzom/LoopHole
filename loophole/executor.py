@@ -163,10 +163,15 @@ class CommandExecutor(Executor):
     """
 
     def __init__(self, command_template: str, shell_timeout: int = 600,
-                 allow_unsandboxed: bool = False):
+                 allow_unsandboxed: bool = False, network_hosts: tuple = (),
+                 pass_env: tuple = ()):
         if "{task}" not in command_template:
             # Still valid (agent may read TASK.md), but warn-by-convention.
             pass
+        # Phase 1: scoped egress + secret pass-through so an API-calling framework
+        # agent can reach its API WITHOUT allow_unsandboxed.
+        self.network_hosts = tuple(network_hosts)
+        self.pass_env = tuple(pass_env)
         self.command_template = command_template
         self.shell_timeout = shell_timeout
         self.allow_unsandboxed = allow_unsandboxed
@@ -174,7 +179,8 @@ class CommandExecutor(Executor):
     def run(self, task: Task, worktree: str,
             ctx: Optional[ExecContext] = None) -> ExecResult:
         belt = Toolbelt(worktree, timeout=self.shell_timeout,
-                        allow_unsandboxed=self.allow_unsandboxed)
+                        allow_unsandboxed=self.allow_unsandboxed,
+                        network_hosts=self.network_hosts, pass_env=self.pass_env)
         # Make the task available as a file too (some agents take a prompt file).
         belt.write_file("TASK.md", "# Task\n\n{}\n".format(task.description))
         cmd = self.command_template.replace("{task}", shlex.quote(task.description))
