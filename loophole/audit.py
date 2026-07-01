@@ -65,7 +65,10 @@ def _summary(kind: str, p: dict) -> str:
     if kind == "task_failed":
         return "task failed: {}".format(p.get("error", ""))[:160]
     if kind == "goal_status":
-        return "status -> {}".format(p.get("status", ""))
+        s = "status -> {}".format(p.get("status", ""))
+        if p.get("detail"):
+            s += ": {}".format(str(p["detail"])[:160])
+        return s
     if kind == "verifier_bypasses":
         return "adversary flagged verifier bypass(es)"
     # generic: compact the payload

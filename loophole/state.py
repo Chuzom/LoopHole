@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS goals (
     status        TEXT NOT NULL DEFAULT 'running',  -- running|done|paused|failed
     workspace     TEXT NOT NULL,
     base_commit   TEXT,                    -- integration HEAD when run started
+    detail        TEXT,                    -- why the run ended (paused/failed reason)
     created_at    REAL NOT NULL,
     updated_at    REAL NOT NULL
 );
@@ -126,6 +127,11 @@ class Store:
             self._conn.execute("PRAGMA synchronous=NORMAL;")
             self._conn.execute("PRAGMA foreign_keys=ON;")
             self._conn.executescript(SCHEMA)
+            # migrate pre-existing DBs (CREATE IF NOT EXISTS won't add columns)
+            try:
+                self._conn.execute("ALTER TABLE goals ADD COLUMN detail TEXT")
+            except sqlite3.OperationalError:
+                pass                      # column already present
             self._conn.commit()
 
     def close(self) -> None:
@@ -194,12 +200,22 @@ class Store:
         with self._lock:
             return list(self._conn.execute("SELECT * FROM goals ORDER BY created_at DESC"))
 
-    def set_goal_status(self, gid: str, status: str) -> None:
+    def set_goal_status(self, gid: str, status: str,
+                        detail: Optional[str] = None) -> None:
         with self._lock:
-            self._conn.execute("UPDATE goals SET status=?, updated_at=? WHERE id=?",
-                               (status, _now(), gid))
+            if detail is not None:
+                self._conn.execute(
+                    "UPDATE goals SET status=?, detail=?, updated_at=? WHERE id=?",
+                    (status, detail, _now(), gid))
+            else:
+                self._conn.execute(
+                    "UPDATE goals SET status=?, updated_at=? WHERE id=?",
+                    (status, _now(), gid))
             self._conn.commit()
-        self.log("goal_status", goal_id=gid, payload={"status": status})
+        payload = {"status": status}
+        if detail is not None:
+            payload["detail"] = detail
+        self.log("goal_status", goal_id=gid, payload=payload)
 
     def set_goal_base_commit(self, gid: str, commit: str) -> None:
         with self._lock:

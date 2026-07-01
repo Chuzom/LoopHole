@@ -581,6 +581,12 @@ def status(goal_id: str, db: Optional[str]) -> None:
     contract = GoalContract.from_json(g["contract"])
     click.echo("goal: " + contract.goal)
     click.echo("workspace: " + g["workspace"])
+    detail = g["detail"] if "detail" in g.keys() else None
+    if detail and g["status"] in ("paused", "failed"):
+        click.echo(click.style("why: ", fg="yellow") + detail)
+        click.echo(click.style(
+            "next: loophole resume {gid}   ·   loophole audit {gid}".format(gid=goal_id),
+            dim=True))
     click.echo("")
     for t in store.tasks_for_goal(goal_id):
         color = {"done": "green", "failed": "red", "running": "yellow"}.get(t.status, "white")
