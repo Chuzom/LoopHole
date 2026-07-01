@@ -202,10 +202,11 @@ class CommandExecutor(Executor):
 
 def _log_network_denials(belt: Toolbelt, ctx: Optional["ExecContext"]) -> None:
     """Denied egress attempts are boundary decisions — put them in the audit trail."""
-    if belt.network_denials and ctx is not None and getattr(ctx, "store", None):
+    denials = getattr(belt, "network_denials", None)   # tolerate Toolbelt stand-ins
+    if denials and ctx is not None and getattr(ctx, "store", None):
         ctx.store.log("executor_network_denied", goal_id=ctx.goal_id,
                       task_id=ctx.task_id,
-                      payload={"hosts": sorted(set(belt.network_denials))})
+                      payload={"hosts": sorted(set(denials))})
 
 
 def execute_task(provider: Provider, task: Task, worktree: str,
