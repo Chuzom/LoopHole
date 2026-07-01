@@ -2,6 +2,8 @@
 
 <img src="assets/loophole-hero.png" alt="loophole — a swarm of agents building code while a gatekeeper verifies it's provably done" width="820">
 
+<img src="assets/loophole-logo.png" alt="loophole logo — a robot verifying inside a loop" width="88">
+
 # loophole
 
 **A swarm of AI agents that work on a goal until it's _provably_ done — and tells you exactly what it couldn't prove.**
