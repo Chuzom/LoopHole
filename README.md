@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/loophole-flow.svg" alt="loophole — a swarm of agents that won't stop until the goal is provably done" width="820">
+<img src="assets/loophole-hero.png" alt="loophole — a swarm of agents building code while a gatekeeper verifies it's provably done" width="820">
 
 # loophole
 
@@ -137,6 +137,10 @@ with a **scorecard** (`loophole stats` aggregates them) so you can *see*, in num
 "done" was verifier-backed.
 
 ## How it works
+
+<div align="center">
+<img src="assets/loophole-flow.svg" alt="Goal → Planner → Executors (worktrees) → Verifier → Done; not done loops back to re-plan/retry" width="720">
+</div>
 
 ```
 🎯 Goal ─▶ 🧭 Planner ─▶ ⚙️ Executors ─▶ ✅ Verifier ─▶ 🏁 Done
