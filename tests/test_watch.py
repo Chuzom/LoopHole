@@ -184,3 +184,16 @@ def test_run_watch_default_and_flag_parse():
     for flag in ("--watch", "--no-watch"):
         out = r.invoke(main, ["run", flag, "--contract", "/nope/missing.json"]).output
         assert "no such option" not in out.lower()      # the flag is recognized
+
+
+def test_forge_shows_real_agent_step_over_funny_verb():
+    from loophole.watch import render_frame, _ACTIVITIES
+    class _T:
+        def __init__(self): self.id="t1"; self.description="build parser"; self.status="running"
+    ev = {"seq": 1, "kind": "agent_step", "task_id": "t1",
+          "payload": '{"tool":"write_file","note":"parser.py"}', "ts": 0}
+    f = render_frame("g", "running", [_T()], [ev], color=False, frame=0)
+    assert "write_file" in f                       # the agent's REAL tool call is shown
+    # fallback: with no agent_step events, a funny verb appears instead
+    f2 = render_frame("g", "running", [_T()], [], color=False, frame=0)
+    assert any(a in f2 for a in _ACTIVITIES)

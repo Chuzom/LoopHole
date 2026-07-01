@@ -87,14 +87,29 @@ def _latest(events: List[Any], kind: str) -> Optional[Any]:
     return None
 
 
-def _agent_line(t: Any, idx: int, frame: int, color: bool) -> str:
-    """One funny, animated agent: a face that blinks/looks around, a spinner, and a
-    goofy 'what it's doing' line that drifts over time. Deterministic per (id, frame)."""
+def _latest_agent_steps(events: List[Any]) -> dict:
+    """task_id -> the latest agent_step's text ('tool: note'). A framework adapter
+    (e.g. claude-code) emits these, so the FORGE shows the agent's REAL tool calls."""
+    out: dict = {}
+    for e in events:
+        if e["kind"] == "agent_step":
+            tid = e["task_id"] if "task_id" in e.keys() else None
+            if tid:
+                p = _payload(e)
+                tool, note = p.get("tool", ""), p.get("note", "")
+                out[tid] = (tool + (": " + note if note else "")).strip()
+    return out
+
+
+def _agent_line(t: Any, idx: int, frame: int, color: bool,
+                real_activity: Optional[str] = None) -> str:
+    """One animated agent. Shows its REAL latest tool call when an adapter reported
+    one (real_activity); otherwise a goofy drifting verb. Deterministic per (id, frame)."""
     seed = _seed(getattr(t, "id", "") or "") ^ (idx * 131)
     blink = ((seed // 7 + frame) // 3) % 9 == 0
     face = _FACE_BLINK if blink else _FACE_WORK[(seed + frame // 6) % len(_FACE_WORK)]
     spin = _SPN[frame % 4]
-    act = _ACTIVITIES[(seed + frame // 5) % len(_ACTIVITIES)]
+    act = (real_activity or _ACTIVITIES[(seed + frame // 5) % len(_ACTIVITIES)])[:26]
     name = (t.description or "")[:22]
     return "   {} {}  {:<22} {:<26} {}".format(
         _col(face, "cyan", color), spin, name, _col(act, "dim", color),
@@ -121,8 +136,10 @@ def render_frame(goal_text: str, status: str, tasks: List[Any], events: List[Any
     if not running and not done:
         add("  " + _col("· no agents active yet", "dim", color)
             + _col("  " + _FACE_BLINK + " (napping)", "dim", color))
+    steps = _latest_agent_steps(events)
     for i, t in enumerate(running[:5]):
-        add(_agent_line(t, i, frame, color))
+        add(_agent_line(t, i, frame, color,
+                        real_activity=steps.get(getattr(t, "id", None))))
     for t in done[-2:]:
         add("   " + _col(_FACE_DONE, "green", color) + "    "
             + (t.description or "")[:width - 18] + _col("  merged ✓", "green", color))
