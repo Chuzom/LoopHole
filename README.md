@@ -8,7 +8,7 @@
 
 **The acceptance layer for autonomous coding — "CI for AI agents." Bring your own agent; loophole is the trusted gate that decides what's _actually_ done.**
 
-[![tests](https://img.shields.io/badge/tests-107%20passing-22c55e)](#)
+[![tests](https://img.shields.io/badge/tests-173%20passing-22c55e)](#)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab)](#)
 [![providers](https://img.shields.io/badge/providers-Ollama%20%C2%B7%20Anthropic%20%C2%B7%20OpenAI-8b5cf6)](#)
 [![license](https://img.shields.io/badge/license-MIT-64748b)](LICENSE)
@@ -16,6 +16,18 @@
 </div>
 
 ---
+
+## ▶️ See it work in 10 seconds — no setup, no API key
+
+After installing (below), run either demo. Both are fully self-contained — **no LLM, no keys, no config:**
+
+```bash
+loophole demo          # 30-sec proof: a naive agent says "Done! ✅" on buggy code —
+                       # loophole REJECTS it (the check fails), then accepts once it's fixed.
+loophole watch --demo  # watch the swarm work LIVE in your terminal (animated, no browser).
+```
+
+`loophole demo` reaching **DONE** *only after the bug is fixed* is the whole idea in one command: **a check decides "done," never the agent.**
 
 ## The problem
 
@@ -62,9 +74,17 @@ Outcome: DONE
 What was VERIFIED:  [PASS] hard:python3 -c "from add import add; ..."
 What was NOT proven: anything outside the verifier's scope.
 =====================================================
+
+── LoopHole scorecard ─────────────────────────
+  ✓ VERIFIED DONE   (1 round · 3s)
+  1 agent merge accepted by the verifier
+  0 candidates the verifier REJECTED before accepting
+  0 cheats the boundary blocked
 ```
 
-That's the whole contract: **you define "done," loophole reaches it.**
+That's the whole contract: **you define "done," loophole reaches it** — and every run ends
+with a **scorecard** (`loophole stats` aggregates them) so you can *see*, in numbers, that
+"done" was verifier-backed.
 
 ## How it works
 
@@ -182,12 +202,13 @@ audited by a multi-model council; we publish our own findings.
 Shipped: OS sandbox for `run_shell`/verifiers · enforced per-task write-globs at
 commit · per-merge re-verification (verified-green invariant) · fail-closed soft
 judge · pluggable executors (bring-your-own-agent) · audit trail · shareable
-contracts + templates.
+contracts + templates · **contract registry (local + remote index)** · **value
+scorecard + `loophole stats`** · **module SDK** (graded, domain-specific verifiers) ·
+**Chuzom-routed models** (cost-optimized model selection with the verifier as the net).
 
 Next (the acceptance-layer bet — *"CI for AI agents," bring-your-own-executor*):
 
 - [ ] Hosted control-plane (run history, audit, policy, fleet dashboards)
-- [ ] Verifier/contract registry (shareable acceptance specs)
 - [ ] First-class executor adapters for frontier coding agents
 - [ ] Richer verifier adapters (coverage, mutation testing)
 
