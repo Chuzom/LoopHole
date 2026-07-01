@@ -338,3 +338,25 @@ def make_provider(spec: str) -> Provider:
     if name == "chuzom":
         return ChuzomProvider(tier=model or "auto")
     raise ProviderError("unknown provider: {}".format(name))
+
+
+def detect_chuzom() -> bool:
+    """True when Chuzom appears available to route through. loophole then defaults
+    its swarm to ``chuzom:auto`` (cost-routed) instead of a fixed local model — so
+    if Chuzom is running, loophole uses it automatically; if not, it falls back to
+    local Ollama. Signals (any one): a live router endpoint, an explicit tier
+    override, a local ``~/.chuzom`` install, or a ``chuzom`` binary on PATH."""
+    import shutil
+    if os.environ.get("CHUZOM_URL"):
+        return True
+    if os.environ.get("CHUZOM_TIER_COMPLEX") or os.environ.get("CHUZOM_TIER_MODERATE"):
+        return True
+    if os.path.isdir(os.path.expanduser("~/.chuzom")):
+        return True
+    return shutil.which("chuzom") is not None
+
+
+def default_model() -> str:
+    """The model spec loophole uses when the caller doesn't pick one: route through
+    Chuzom when it's available, else a capable local Ollama coder ($0)."""
+    return "chuzom:auto" if detect_chuzom() else "ollama:qwen3-coder:30b"

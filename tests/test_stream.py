@@ -149,3 +149,19 @@ def test_markdown_snapshot_for_claude_desktop():
     assert "**Milestones**" in md
     assert "**Verdict:**" in md and "rejected before accept" in md
     st.close()
+
+
+# ---- Chuzom auto-detection (loophole routes through Chuzom when it's up) ----
+
+def test_detect_chuzom_signals(monkeypatch, tmp_path):
+    from loophole import provider as P
+    import shutil as _sh
+    for v in ("CHUZOM_URL", "CHUZOM_TIER_COMPLEX", "CHUZOM_TIER_MODERATE"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setattr(P.os.path, "isdir", lambda p: False)   # no ~/.chuzom
+    monkeypatch.setattr(_sh, "which", lambda n: None)          # no chuzom binary
+    assert P.detect_chuzom() is False
+    assert P.default_model() == "ollama:qwen3-coder:30b"
+    monkeypatch.setenv("CHUZOM_URL", "http://localhost:8000/route")
+    assert P.detect_chuzom() is True
+    assert P.default_model() == "chuzom:auto"

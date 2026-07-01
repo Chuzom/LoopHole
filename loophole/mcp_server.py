@@ -28,8 +28,6 @@ from typing import Any, Dict, List, Optional
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_INFO = {"name": "loophole", "version": "0.1.0"}
 
-_DEFAULT_MODEL = "ollama:qwen3-coder:30b"   # local, $0; override per call
-
 
 # --------------------------------------------------------------------------- #
 # run manager — persists for the server process's lifetime                    #
@@ -43,14 +41,15 @@ class RunManager:
         self._runs: Dict[str, Any] = {}
         self._lock = threading.Lock()
 
-    def start(self, goal: str, verify: str, model: str = _DEFAULT_MODEL,
+    def start(self, goal: str, verify: str, model: Optional[str] = None,
               max_rounds: int = 6, workspace: Optional[str] = None) -> str:
         from .budget import Budget
         from .contract import GoalContract, Verifier, VerifierKind
         from .loop import LoopConfig, Roles, run_goal
-        from .provider import make_provider
+        from .provider import default_model, make_provider
         from .state import Store
 
+        model = model or default_model()            # auto: Chuzom if up, else local
         ws = os.path.realpath(workspace or tempfile.mkdtemp(prefix="loophole_mcp_"))
         _ensure_repo(ws)
         contract = GoalContract(
@@ -128,7 +127,10 @@ def tool_specs() -> List[dict]:
              "goal": dict(s, description="What to build, in plain language."),
              "verify": dict(s, description="Shell command that exits 0 only when the "
                             "goal is met, e.g. 'pytest -q' or a python assertion."),
-             "model": dict(s, description="provider:model (default {}).".format(_DEFAULT_MODEL)),
+             "model": dict(s, description="provider:model. Default auto-selects: "
+                           "'chuzom:auto' when Chuzom is running (cost-routed), else "
+                           "'ollama:qwen3-coder:30b' (local, $0). Pass 'chuzom:complex' "
+                           "to force Chuzom, or any provider:model."),
              "max_rounds": {"type": "integer", "description": "Max attempt rounds (default 6)."},
              "workspace": dict(s, description="Repo/dir to work in (default: a fresh temp repo)."),
          }, "required": ["goal", "verify"]}},
@@ -155,14 +157,17 @@ def call_tool(name: str, args: Dict[str, Any], runs: RunManager) -> dict:
         goal, verify = args.get("goal"), args.get("verify")
         if not goal or not verify:
             return dict(_text("loophole_run needs both 'goal' and 'verify'."), isError=True)
-        gid = runs.start(goal, verify,
-                         model=args.get("model") or _DEFAULT_MODEL,
+        from .provider import default_model
+        model = args.get("model") or default_model()
+        gid = runs.start(goal, verify, model=model,
                          max_rounds=int(args.get("max_rounds") or 6),
                          workspace=args.get("workspace"))
+        routing = ("Chuzom (auto-detected — cost-routed)" if model.startswith("chuzom")
+                   else model)
         from .stream import render_markdown_snapshot
         snap = render_markdown_snapshot(runs.store_for(gid), gid)
-        return _text("Started run `{}`.\n\n{}\n\n_Call loophole_status with this id to "
-                     "watch progress._".format(gid, snap))
+        return _text("Started run `{}` · model: {}\n\n{}\n\n_Call loophole_status with "
+                     "this id to watch progress._".format(gid, routing, snap))
     if name == "loophole_status":
         gid = args.get("goal_id")
         if not gid:
