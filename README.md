@@ -172,6 +172,30 @@ loophole run --contract loophole.json --executor-command 'claude -p {task}'
 That's the bet: as models commoditize, *who wrote the code* matters less than
 *whether it provably passes*. loophole is the neutral referee, not another coder.
 
+### Swarm on top of any agent framework
+
+Each swarm worker can be a **full agent framework** — Claude Code, Agno, a Hermes
+harness, your own — running in its own git worktree while loophole stays the
+orchestrator + trust layer. Claude Code is built in:
+
+```bash
+loophole run "<goal>" --executor claude-code   # runs `claude -p` per task, streams its
+                                               # tool calls into the FORGE (agent_step)
+```
+
+For an API-calling framework, grant scoped access without dropping the sandbox:
+
+```bash
+loophole run "<goal>" --executor claude-code \
+  --executor-network api.anthropic.com --executor-secret ANTHROPIC_API_KEY
+```
+
+**Add your own framework** — implement a tiny `Executor` subclass, register it under
+the `loophole.executors` entry point, and `loophole run --executor <name>` picks it up
+(it appears in `loophole executor list`). The sandbox → write-allowlist → merge gate →
+verifier boundary is unchanged; no adapter can grant "done." Copy-paste template:
+**[`examples/adapter_package/`](examples/adapter_package/)**.
+
 ## For teams — loophole as a CI acceptance gate
 
 Let any agent open a PR; make loophole the gate that decides if it's done — in CI,

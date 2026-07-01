@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loophole-agent-echo"
+version = "0.1.0"
+description = "Example LoopHole executor adapter — plug an agent framework in via the loophole.executors entry point."
+requires-python = ">=3.9"
+dependencies = ["loophole"]
+
+# THIS is the whole integration: register a factory under the loophole.executors
+# group. After `pip install`, `loophole run --executor echo` finds it, and it shows
+# up in `loophole executor list`.
+[project.entry-points."loophole.executors"]
+echo = "loophole_agent_echo.plugin:register"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["loophole_agent_echo*"]
