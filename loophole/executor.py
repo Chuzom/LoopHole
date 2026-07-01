@@ -12,6 +12,7 @@ executor, owns state, merging, and the decision of "done".
 
 from __future__ import annotations
 
+import os
 import shlex
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -152,6 +153,13 @@ class CommandExecutor(Executor):
         belt.write_file("TASK.md", "# Task\n\n{}\n".format(task.description))
         cmd = self.command_template.replace("{task}", shlex.quote(task.description))
         result = belt.run_shell(cmd)
+        # TASK.md is orchestrator scaffolding for the agent to READ — not agent output.
+        # Remove it after the run so it never counts against the per-task write-allowlist
+        # (S5) or pollutes the merged result. (An external agent's REAL edits remain.)
+        try:
+            os.remove(os.path.join(worktree, "TASK.md"))
+        except OSError:
+            pass
         summary = ("external agent ok: " if result.ok else "external agent failed: ") \
             + str(result.output)[:240]
         return ExecResult(ok=result.ok, summary=summary, steps=1)

@@ -36,8 +36,9 @@ def test_command_executor_runs_external_agent_in_worktree():
         res = ex.run(_task(), wt)
         assert isinstance(res, ExecResult) and res.ok
         assert os.path.exists(os.path.join(wt, "out.txt"))
-        # the task is also surfaced as a file for agents that want it
-        assert os.path.exists(os.path.join(wt, "TASK.md"))
+        # TASK.md is surfaced for the agent to READ during the run, then removed so it
+        # never counts as agent output (write-allowlist) or pollutes the merge.
+        assert not os.path.exists(os.path.join(wt, "TASK.md"))
 
 
 @requires_sandbox
