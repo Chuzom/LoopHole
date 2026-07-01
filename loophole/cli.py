@@ -553,10 +553,16 @@ def _human_checkpoint(prompt: str) -> bool:
 @click.option("--max-rounds", default=25, type=int)
 @click.option("--price-in", default=0.003, type=float)
 @click.option("--price-out", default=0.015, type=float)
+@click.option("--db", default=None)
 def estimate(goal: str, verify_cmd: Optional[str], max_rounds: int,
-             price_in: float, price_out: float) -> None:
-    """Dry-run cost estimate for a goal (no model calls)."""
-    est = estimate_cost(goal, rounds=max_rounds, price_in=price_in, price_out=price_out)
+             price_in: float, price_out: float, db: Optional[str]) -> None:
+    """Dry-run cost estimate for a goal (no model calls).
+
+    Grounded in the median per-round spend of past runs when history exists;
+    otherwise a rough fixed heuristic (the output says which)."""
+    store = Store(db or _default_db())
+    est = estimate_cost(goal, rounds=max_rounds, price_in=price_in,
+                        price_out=price_out, store=store)
     click.echo(json.dumps(est, indent=2))
 
 

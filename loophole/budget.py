@@ -7,9 +7,10 @@ that roles should auto-downgrade to cheaper models; at 100% it signals pause
 
 from __future__ import annotations
 
+import json
 import threading
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 
 class BudgetExceeded(Exception):
@@ -74,24 +75,66 @@ class Budget:
             "/{}".format(self.max_tokens) if self.max_tokens else "")
 
 
-def estimate(goal: str, rounds: int, avg_tasks: int = 5,
-             price_in: float = 0.003, price_out: float = 0.015) -> dict:
-    """Very rough dry-run cost prediction.
+def _historical_per_round(store: Any) -> Optional[dict]:
+    """Median per-round spend from past runs' ``run_spend`` events, or None
+    when there is no usable history."""
+    try:
+        goals = list(store.list_goals())
+    except Exception:
+        return None
+    tokens, usd = [], []
+    for g in goals:
+        for e in store.events(g["id"]):
+            if e["kind"] != "run_spend":
+                continue
+            try:
+                p = json.loads(e["payload"] or "{}")
+            except (TypeError, ValueError):
+                continue
+            r, t = p.get("rounds") or 0, p.get("spent_tokens") or 0
+            if r > 0 and t > 0:
+                tokens.append(t / r)
+                usd.append((p.get("spent_usd") or 0.0) / r)
+    if not tokens:
+        return None
+    tokens.sort()
+    usd.sort()
+    mid = len(tokens) // 2
+    return {"tokens_per_round": tokens[mid], "usd_per_round": usd[mid],
+            "runs": len(tokens)}
 
-    Assumes per round: 1 planner call + avg_tasks executor sessions
-    (~6 LLM calls each) + 1 verify pass + occasional critique.
+
+def estimate(goal: str, rounds: int, avg_tasks: int = 5,
+             price_in: float = 0.003, price_out: float = 0.015,
+             store: Any = None) -> dict:
+    """Dry-run cost prediction (no model calls).
+
+    Grounded when possible: with a ``store``, uses the median per-round spend
+    of past runs on this machine (``run_spend`` events). Falls back to a rough
+    fixed heuristic — per round: 1 planner call + avg_tasks executor sessions
+    (~6 LLM calls each) + 1 verify pass.
     """
+    hist = _historical_per_round(store) if store is not None else None
     calls_per_round = 1 + avg_tasks * 6 + 1
-    tok_in_per_call = 1500
-    tok_out_per_call = 600
     total_calls = calls_per_round * rounds
-    tok_in = total_calls * tok_in_per_call
-    tok_out = total_calls * tok_out_per_call
+    if hist:
+        return {
+            "rounds": rounds,
+            "estimated_calls": total_calls,
+            "estimated_tokens": int(hist["tokens_per_round"] * rounds),
+            "estimated_cost_usd": round(hist["usd_per_round"] * rounds, 4),
+            "basis": "history",
+            "note": "grounded in the median per-round spend of {} past run(s) "
+                    "on this machine".format(hist["runs"]),
+        }
+    tok_in = total_calls * 1500
+    tok_out = total_calls * 600
     cost = (tok_in / 1000.0) * price_in + (tok_out / 1000.0) * price_out
     return {
         "rounds": rounds,
         "estimated_calls": total_calls,
         "estimated_tokens": tok_in + tok_out,
         "estimated_cost_usd": round(cost, 4),
+        "basis": "heuristic",
         "note": "rough upper-bound; local (Ollama) models cost $0",
     }

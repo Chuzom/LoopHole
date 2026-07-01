@@ -727,6 +727,12 @@ def _fail_task(store: Store, integ: Integration, task: Task, goal_id: str,
 def _finish(store: Store, goal_id: str, status: str, rounds: int,
             verdict: Optional[VerifyVerdict], budget: Budget,
             bypasses: List[str], detail: str, say: Callable[[str], None]) -> LoopOutcome:
+    # Persist the run's actual spend so `loophole estimate` can ground future
+    # predictions in this machine's real history instead of fixed constants.
+    store.log("run_spend", goal_id=goal_id,
+              payload={"spent_usd": budget.spent_usd,
+                       "spent_tokens": budget.spent_tokens,
+                       "rounds": rounds, "status": status})
     store.set_goal_status(goal_id, status)
     integ = Integration(store.get_goal(goal_id)["workspace"])
     integ.cleanup_worktrees()
