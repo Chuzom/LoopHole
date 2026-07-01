@@ -52,7 +52,7 @@ When the check fails, loophole re-plans, retries, and routes around dead ends �
 ## 60-second quickstart
 
 ```bash
-git clone https://github.com/you/loophole && cd loophole
+git clone https://github.com/Chuzom/loophole && cd loophole
 python -m venv .venv && source .venv/bin/activate
 pip install -e .          # zero-config: works with local Ollama out of the box
 
@@ -114,6 +114,7 @@ with a **scorecard** (`loophole stats` aggregates them) so you can *see*, in num
 
 Because the verifier *is* the goalpost, loophole defends it:
 
+- **Verifier adversary review** — before any work runs, an LLM pass attacks your declared verifier (*"how could an agent pass this without satisfying intent?"*) and lists the concrete bypass strategies it finds in the Residual-Risk Report, so you can harden the check first.
 - **Verification boundary** — protected files (your tests, configs) are checked against the original commit; if an agent edits them, the run **fails**.
 - **Test-count audit** — the suite can't silently shrink to make red turn green.
 - **No fake "done"** — if an agent claims completion but changed nothing, it's rejected.
@@ -132,7 +133,8 @@ loophole contract validate loophole.json        # validate / show a contract (pa
 loophole registry list                            # named, shareable acceptance specs
 loophole registry add team-default ./loophole.json   # publish a spec; reuse by name
 loophole run --contract team-default              # run a registry spec by name
-loophole run "<goal>"                            # THE FORGE shows live by DEFAULT (interactive)
+loophole run "<goal>"                            # live STREAM view by DEFAULT (append-only)
+loophole run "<goal>" --view forge               # THE FORGE full-screen dashboard (TTY only)
 loophole run "<goal>" --no-watch                 # plain log (CI / when piping)
 # models route via Chuzom by DEFAULT (planner=chuzom:simple, executor=chuzom:complex);
 # set CHUZOM_URL to route through a live `chuzom-route` server, else local tier policy.
@@ -162,8 +164,8 @@ Default is **Ollama** (free, local, zero-config). Set `ANTHROPIC_API_KEY` / `OPE
 
 loophole's value is the **trusted boundary around an _untrusted_ executor** — so the
 executor is a pluggable backend. Use the built-in agent, or drive any external/
-frontier coding agent as a black box; the sandbox, write-allowlist, merge gate, and
-verifier are identical either way:
+frontier coding agent as a black box; git-worktree isolation, the write-allowlist,
+merge gate, and verifier apply to every executor — no adapter can grant "done":
 
 ```bash
 loophole run --contract loophole.json --executor-command 'claude -p {task}'
@@ -183,7 +185,18 @@ loophole run "<goal>" --executor claude-code   # runs `claude -p` per task, stre
                                                # tool calls into the FORGE (agent_step)
 ```
 
-For an API-calling framework, grant scoped access without dropping the sandbox:
+> **Trust exception:** the built-in `claude-code` adapter defaults to **trusted** — it
+> runs *outside* the OS sandbox so it can reach your subscription login (macOS
+> keychain). What still holds regardless: git-worktree isolation, the write-allowlist,
+> merge gate, and verifier — **no adapter, trusted or not, can grant "done."** Force it
+> back into the sandbox with `--executor-sandboxed` (this blocks keychain/subscription
+> auth; API-key auth via `--executor-secret` keeps working sandboxed). Generic
+> `--executor-command` executors are always fully OS-sandboxed by default.
+
+For an API-calling framework, open network access for it without touching the
+filesystem sandbox — `--executor-network` records the hosts for the audit trail, but
+egress is currently **all-or-nothing** (per-host scoping needs an egress-proxy
+sidecar, on the roadmap):
 
 ```bash
 loophole run "<goal>" --executor claude-code \
