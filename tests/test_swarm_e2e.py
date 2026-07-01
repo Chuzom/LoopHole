@@ -59,9 +59,14 @@ def _run(executor_command, allowed_writes=None, verifier_cmd=_ADD_VERIFIER):
     cfg = LoopConfig(max_parallel=1, skip_plan_critique=True,
                      executor_command=executor_command)
     outcome = run_goal(store, gid, contract, roles, Budget(), cfg)
-    events = [e["kind"] for e in store.events(gid)]
+    evs = store.events(gid)
+    events = [e["kind"] for e in evs]
+    why = "detail={!r} | reasons={}".format(outcome.detail, [
+        (e["kind"], (e["payload"] or "")[:140]) for e in evs
+        if e["kind"] in ("merge_gate_reject", "write_glob_violation",
+                         "task_failed", "verify_run")])
     store.close()
-    return outcome, events, ws
+    return outcome, events, ws, why
 
 
 # correct + wrong implementations as shell one-liners (no LLM)
@@ -70,13 +75,13 @@ _WRITE_BAD = r"printf 'def add(a, b):\n    return a - b\n' > add.py"
 
 
 def test_swarm_accepts_correct_work():
-    outcome, events, _ = _run(_WRITE_GOOD)
-    assert outcome.status == "done"                 # verifier accepted it
+    outcome, events, _, why = _run(_WRITE_GOOD)
+    assert outcome.status == "done", why            # verifier accepted it
     assert "verify_run" in events
 
 
 def test_swarm_rejects_incorrect_work():
-    outcome, _, ws = _run(_WRITE_BAD)
+    outcome, _, ws, _ = _run(_WRITE_BAD)
     assert outcome.status != "done"                 # the gate refused buggy code
     # and the buggy file never reached a verified-green HEAD
     head_add = subprocess.run(["git", "-C", ws, "show", "HEAD:add.py"],
@@ -87,7 +92,7 @@ def test_swarm_rejects_incorrect_work():
 def test_boundary_blocks_out_of_allowlist_write():
     # agent writes add.py (fine) AND a file outside the allowlist -> boundary blocks
     cmd = _WRITE_GOOD + r" && printf 'leak' > secret.txt"
-    outcome, events, _ = _run(cmd, allowed_writes=["add.py"])
+    outcome, events, _, _ = _run(cmd, allowed_writes=["add.py"])
     assert outcome.status != "done"                  # blocked, not silently accepted
     assert any(k in events for k in
                ("write_glob_violation", "merge_gate_reject")), events

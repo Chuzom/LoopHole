@@ -111,8 +111,12 @@ def test_adapter_drives_real_run_via_executor_name():
     cfg = LoopConfig(max_parallel=1, skip_plan_critique=True, executor_name="toy-add")
     p = _Planner()
     outcome = run_goal(s, gid, contract, Roles(p, p, p), Budget(), cfg)
-    kinds = [e["kind"] for e in s.events(gid)]
+    evs = s.events(gid)
+    kinds = [e["kind"] for e in evs]
+    why = "detail={!r} | reasons={}".format(outcome.detail, [
+        (e["kind"], (e["payload"] or "")[:140]) for e in evs
+        if e["kind"] in ("merge_gate_reject", "task_failed", "verify_run")])
     s.close()
     ex._ADAPTERS.pop("toy-add", None)
-    assert outcome.status == "done"                 # adapter's work reached verified DONE
+    assert outcome.status == "done", why            # adapter's work reached verified DONE
     assert "agent_step" in kinds                    # its internal step streamed to the log
