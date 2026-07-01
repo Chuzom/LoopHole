@@ -50,3 +50,27 @@ def test_protected_paths_aggregation():
     assert "tests/**" in c.all_protected_paths
     assert "conftest.py" in c.all_protected_paths
     assert "spec.md" in c.all_protected_paths
+
+
+def test_auto_protect_contract_file_and_verifier_scripts(tmp_path):
+    (tmp_path / "loophole.json").write_text("{}")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "check.py").write_text("print('ok')")
+    c = GoalContract.quick("build x", verify_cmd="python3 tests/check.py --strict")
+    added = c.auto_protect(str(tmp_path))
+    assert added == ["loophole.json", "tests/check.py"]
+    # non-file tokens (python3, --strict) are never protected
+    assert "python3" not in c.all_protected_paths
+    # a second call is a no-op (idempotent)
+    assert c.auto_protect(str(tmp_path)) == []
+    # and the boundary now actually blocks edits to the goalpost
+    violations = c.write_violations(["tests/check.py", "src/app.py"])
+    assert any("tests/check.py" in v and "protected" in v for v in violations)
+    assert not any("src/app.py" in v for v in violations)
+
+
+def test_auto_protect_skips_absent_absolute_and_escaping_paths(tmp_path):
+    c = GoalContract.quick("build x",
+                           verify_cmd="/usr/bin/true ../outside.py missing.py")
+    assert c.auto_protect(str(tmp_path)) == []
+    assert c.all_protected_paths == []

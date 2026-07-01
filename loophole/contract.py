@@ -11,6 +11,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import shlex
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any, List, Optional
@@ -174,6 +175,38 @@ class GoalContract:
             elif any(fnmatch.fnmatch(rel, d) or fnmatch.fnmatch(base, d) for d in deny):
                 out.append("{} is a protected path".format(rel))
         return out
+
+    def auto_protect(self, workspace: str) -> List[str]:
+        """Implicitly protect the goalpost itself.
+
+        The contract file and any workspace files a hard verifier executes ARE
+        the definition of "done" — an executor that can rewrite them can move
+        the goalpost instead of reaching it. `loophole init` protects them by
+        convention; this makes it hold for hand-authored contracts too. Scans
+        each hard verifier command for tokens that resolve to existing files
+        inside the workspace (plus the conventional ./loophole.json) and adds
+        them to ``protected_paths``. Returns the newly added repo-relative
+        paths so the caller can log them for the audit trail.
+        """
+        candidates: List[str] = ["loophole.json"]
+        for v in self.hard_verifiers:
+            try:
+                candidates.extend(shlex.split(v.command or ""))
+            except ValueError:            # unbalanced quotes — best-effort split
+                candidates.extend((v.command or "").split())
+        already = set(self.all_protected_paths)
+        added: List[str] = []
+        for tok in candidates:
+            if not tok or os.path.isabs(tok):
+                continue                  # boundary globs are repo-relative
+            rel = os.path.normpath(tok)
+            if rel.startswith("..") or rel in already:
+                continue
+            if os.path.isfile(os.path.join(workspace, rel)):
+                self.protected_paths.append(rel)
+                already.add(rel)
+                added.append(rel)
+        return sorted(added)
 
     @property
     def all_protected_paths(self) -> List[str]:

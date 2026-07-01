@@ -318,6 +318,17 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
     if goal_row is None:  # C7 fix: controlled failure on missing/deleted goal
         raise ValueError("no such goal: {}".format(goal_id))
     workspace = goal_row["workspace"]
+    # The goalpost defends itself: implicitly protect the contract file and the
+    # workspace files its hard verifiers execute, and be loud when the write
+    # allowlist is wide open. Logged for the audit trail either way.
+    auto_protected = contract.auto_protect(workspace)
+    if auto_protected:
+        store.log("auto_protect", goal_id=goal_id, payload={"paths": auto_protected})
+        say("auto-protected goalpost files: " + ", ".join(auto_protected))
+    if not [g for g in (contract.allowed_writes or []) if g and g != "**"]:
+        say("WARNING: allowed_writes is wide open (['**']) — everything except "
+            "protected paths is writable. Narrow it in loophole.json to tighten "
+            "the boundary.")
     integ = Integration(workspace, allow_no_git=cfg.allow_no_git)
     # N5 fix: a missing git repo silently collapses all isolation — refuse it
     # unless the operator explicitly opted in (then force serial execution).
