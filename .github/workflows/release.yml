@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write        # OIDC identity for PyPI Trusted Publishing
+      contents: read         # explicit: a permissions block zeroes the defaults,
+                             # and checkout on a PRIVATE repo needs contents:read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
