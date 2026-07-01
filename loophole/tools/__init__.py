@@ -16,12 +16,33 @@ it FAILS CLOSED unless the operator passes ``allow_unsandboxed``.
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 from ..sandbox import SandboxPolicy, SandboxUnavailable, scrub_env, wrap
+
+
+def _python_shim_dir() -> Optional[str]:
+    """Modern macOS (and slim Linux images) ship only ``python3`` — but coding
+    agents reflexively run ``python foo.py`` and then loop on 'command not found'.
+    If ``python`` is missing but ``python3`` exists, build a tiny shim dir with a
+    ``python`` launcher so out-of-the-box runs just work. Returns the dir (to put
+    on PATH and mark sandbox-readable) or None when no shim is needed/possible."""
+    if shutil.which("python"):
+        return None
+    py3 = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else shutil.which("python3")
+    if not py3:
+        return None
+    d = tempfile.mkdtemp(prefix="loophole_shim_")
+    shim = os.path.join(d, "python")
+    with open(shim, "w") as f:
+        f.write('#!/bin/sh\nexec "{}" "$@"\n'.format(py3))
+    os.chmod(shim, 0o755)
+    return d
 
 
 @dataclass
@@ -46,6 +67,10 @@ class Toolbelt:
         # ITS api key. Both empty by default (network denied, all secrets scrubbed).
         self.network_hosts = tuple(network_hosts)
         self.pass_env = tuple(pass_env)
+        # Give the agent shell a `python` -> `python3` shim when the host lacks a
+        # bare `python` (modern macOS), so agents don't dead-loop on 'command not
+        # found'. The dir is made sandbox-readable and prepended to PATH per run.
+        self._shim_dir = _python_shim_dir()
         # SEC-2: run_shell is the UNTRUSTED agent shell — confine its reads by
         # default so it can't `cat ~/.ssh/id_rsa` and persist host secrets into the
         # task DB. Overridable for commands that legitimately need broader reads.
@@ -87,21 +112,26 @@ class Toolbelt:
         # S1: confine the command to the OS sandbox (writes within root, no
         # network) and never hand it provider secrets. shell semantics are
         # preserved INSIDE the jail by the wrapped `/bin/sh -c` invocation.
+        extra_writable = (self._shim_dir,) if self._shim_dir else ()
         try:
             argv = wrap(command, self.root,
                         SandboxPolicy(allow_unsandboxed=self.allow_unsandboxed,
                                       confine_reads=self.confine_reads,
                                       allow_network=bool(self.network_hosts),
                                       allowed_hosts=self.network_hosts,
+                                      extra_writable=extra_writable,
                                       pass_env=self.pass_env))
         except SandboxUnavailable as e:
             return ToolResult(False, "sandbox unavailable: {}".format(e))
+        env = scrub_env({}, keep=self.pass_env)
+        if self._shim_dir:                       # put the `python` shim first on PATH
+            env["PATH"] = self._shim_dir + os.pathsep + env.get("PATH", "")
         try:
             proc = subprocess.Popen(
                 argv, cwd=self.root,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 start_new_session=True, text=True,
-                env=scrub_env({}, keep=self.pass_env))
+                env=env)
         except OSError as e:
             return ToolResult(False, "spawn failed: {}".format(e))
         try:

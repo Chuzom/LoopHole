@@ -90,3 +90,20 @@ def test_network_denied_by_default():
         )
         r = _run(probe, root, SandboxPolicy(allow_network=False))
         assert r.returncode != 0, "network reached despite deny policy"
+
+
+def test_python_shim_lets_agents_run_bare_python():
+    """Out-of-the-box UX: modern macOS ships only python3, but agents reflexively
+    run `python`. The Toolbelt shim must make `python` resolve inside the sandbox."""
+    from loophole import sandbox as sb
+    from loophole.tools import Toolbelt, _python_shim_dir
+    if sb.mechanism() not in ("seatbelt", "bwrap"):
+        pytest.skip("no OS sandbox on this host")
+    if _python_shim_dir() is None and __import__("shutil").which("python") is None:
+        pytest.skip("no python3 to shim to")
+    root = tempfile.mkdtemp(prefix="loophole_shim_test_")
+    tb = Toolbelt(root, timeout=30)
+    r = tb.run_shell('python -c "print(42)"')
+    assert r.ok, r.output
+    assert "42" in r.output
+    assert "command not found" not in r.output
