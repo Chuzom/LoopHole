@@ -57,12 +57,19 @@ class ToolResult:
 class Toolbelt:
     def __init__(self, root: str, timeout: int = 120, allow_unsandboxed: bool = False,
                  confine_reads: bool = True, network_hosts: tuple = (),
-                 pass_env: tuple = ()):
+                 pass_env: tuple = (), trusted: bool = False):
         self.root = os.path.realpath(root)
         self.timeout = timeout
         # Fail-closed by default: if no OS sandbox is available, run_shell refuses
         # rather than running unconfined. The operator may opt out explicitly.
         self.allow_unsandboxed = allow_unsandboxed
+        # TRUSTED executor: a known-trusted framework agent (e.g. Claude Code) runs
+        # OUTSIDE the OS sandbox so it can reach its own credential store (the macOS
+        # keychain for a subscription login) — the OS sandbox otherwise blocks that
+        # by design. Correctness is still governed downstream: git-worktree isolation
+        # + the write-allowlist + the merge gate + the verifier. Off for arbitrary
+        # executors; only opt-in-trusted adapters set it.
+        self.trusted = trusted
         # Phase 1: a framework-agent executor may need SCOPED egress to its API +
         # ITS api key. Both empty by default (network denied, all secrets scrubbed).
         self.network_hosts = tuple(network_hosts)
@@ -113,16 +120,22 @@ class Toolbelt:
         # network) and never hand it provider secrets. shell semantics are
         # preserved INSIDE the jail by the wrapped `/bin/sh -c` invocation.
         extra_writable = (self._shim_dir,) if self._shim_dir else ()
-        try:
-            argv = wrap(command, self.root,
-                        SandboxPolicy(allow_unsandboxed=self.allow_unsandboxed,
-                                      confine_reads=self.confine_reads,
-                                      allow_network=bool(self.network_hosts),
-                                      allowed_hosts=self.network_hosts,
-                                      extra_writable=extra_writable,
-                                      pass_env=self.pass_env))
-        except SandboxUnavailable as e:
-            return ToolResult(False, "sandbox unavailable: {}".format(e))
+        if self.trusted:
+            # A trusted framework agent runs OUTSIDE the OS sandbox so it can reach
+            # its own credential store (e.g. the keychain for a subscription login).
+            # Still cwd-scoped to the worktree; env still scrubbed of OTHER secrets.
+            argv = ["/bin/sh", "-c", command]
+        else:
+            try:
+                argv = wrap(command, self.root,
+                            SandboxPolicy(allow_unsandboxed=self.allow_unsandboxed,
+                                          confine_reads=self.confine_reads,
+                                          allow_network=bool(self.network_hosts),
+                                          allowed_hosts=self.network_hosts,
+                                          extra_writable=extra_writable,
+                                          pass_env=self.pass_env))
+            except SandboxUnavailable as e:
+                return ToolResult(False, "sandbox unavailable: {}".format(e))
         env = scrub_env({}, keep=self.pass_env)
         if self._shim_dir:                       # put the `python` shim first on PATH
             env["PATH"] = self._shim_dir + os.pathsep + env.get("PATH", "")

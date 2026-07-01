@@ -417,6 +417,11 @@ def contract_show(path: str) -> None:
 @click.option("--executor-secret", default=None,
               help="Comma-separated env vars to pass through to the executor "
                    "(e.g. ANTHROPIC_API_KEY); every other secret stays scrubbed.")
+@click.option("--executor-sandboxed", is_flag=True,
+              help="Force-confine a trusted framework adapter in the OS sandbox "
+                   "(opt-out). A trusted adapter like claude-code otherwise runs "
+                   "unsandboxed so it can use your subscription login; this re-confines "
+                   "it (subscription auth via keychain will then be blocked).")
 @click.option("--critic-model", default=None, help="provider:model for critique (default: planner).")
 @click.option("--cheap-model", default=None, help="provider:model for budget auto-downgrade.")
 @click.option("--max-parallel", default=4, type=int)
@@ -432,7 +437,8 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
         human: bool, workspace: str, watch_live: Optional[bool], view: Optional[str],
         planner_model: str, executor_model: str, executor_command: Optional[str],
         executor_name: Optional[str], executor_network: Optional[str],
-        executor_secret: Optional[str], critic_model: Optional[str],
+        executor_secret: Optional[str], executor_sandboxed: bool,
+        critic_model: Optional[str],
         cheap_model: Optional[str], max_parallel: int, max_rounds: int,
         max_cost: float, max_tokens: int, protect: tuple,
         expect_test_delta: Optional[int], skip_critique: bool, db: Optional[str]) -> None:
@@ -502,7 +508,8 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
                      on_human=_human_checkpoint if contract.human_verifiers else None,
                      executor_command=executor_command, executor_name=executor_name,
                      executor_network=_csv(executor_network),
-                     executor_secrets=_csv(executor_secret))
+                     executor_secrets=_csv(executor_secret),
+                     executor_sandboxed=executor_sandboxed)
 
     # The default live view is the append-only 'stream' — one clean milestone line
     # per real event, readable in any terminal, when piped, in CI, or in Claude

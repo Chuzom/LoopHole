@@ -70,6 +70,9 @@ class LoopConfig:
     executor_config: dict = field(default_factory=dict)  # adapter knobs
     executor_network: tuple = ()            # hosts the executor may reach (scoped egress)
     executor_secrets: tuple = ()            # env vars to pass through to the executor
+    executor_sandboxed: bool = False        # force-sandbox a trusted framework adapter
+                                            # (opt-out; a trusted adapter runs unsandboxed
+                                            # by default so it can use its own creds)
 
 
 @dataclass
@@ -554,11 +557,14 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
             # The verifier boundary is identical regardless of backend.
             if cfg.executor_name:
                 from .executors import resolve_executor
-                executor = resolve_executor(cfg.executor_name, {
+                _cfg = {
                     "command": cfg.executor_command, "provider": roles.executor,
                     "shell_timeout": cfg.shell_timeout,
                     "network_hosts": cfg.executor_network,
-                    "pass_env": cfg.executor_secrets, **cfg.executor_config})
+                    "pass_env": cfg.executor_secrets, **cfg.executor_config}
+                if cfg.executor_sandboxed:      # opt-out: force-confine a trusted adapter
+                    _cfg.setdefault("trusted", False)
+                executor = resolve_executor(cfg.executor_name, _cfg)
             elif cfg.executor_command:
                 executor = CommandExecutor(cfg.executor_command,
                                            shell_timeout=cfg.shell_timeout,

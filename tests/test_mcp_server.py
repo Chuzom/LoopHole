@@ -107,3 +107,27 @@ def test_serve_loop_over_stdio(monkeypatch):
     assert len(lines) == 2
     assert lines[0]["result"]["serverInfo"]["name"] == "loophole"
     assert "verified done" in lines[1]["result"]["content"][0]["text"]
+
+
+# ---- route resolution: local / subscription / auto (opt-out subscription) ---
+
+def test_resolve_route_local_and_subscription(monkeypatch):
+    monkeypatch.setattr(M, "_claude_cli_available", lambda: True)
+    model, ex, label = M.resolve_route("local", None)
+    assert ex is None and model.startswith("ollama") and "local" in label
+    model, ex, label = M.resolve_route("subscription", None)
+    assert ex == "claude-code" and "subscription" in label
+    # auto prefers the subscription when the claude CLI is present (opt-out design)
+    model, ex, label = M.resolve_route("auto", None)
+    assert ex == "claude-code"
+
+
+def test_resolve_route_auto_without_claude_falls_back(monkeypatch):
+    monkeypatch.setattr(M, "_claude_cli_available", lambda: False)
+    from loophole import provider as P
+    monkeypatch.setattr(P, "detect_chuzom", lambda: False)
+    model, ex, label = M.resolve_route("auto", None)
+    assert ex is None and model.startswith("ollama")
+    # subscription requested but unavailable -> honest local fallback, no crash
+    model, ex, label = M.resolve_route("subscription", None)
+    assert ex is None and "no claude CLI" in label

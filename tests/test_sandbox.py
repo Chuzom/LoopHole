@@ -107,3 +107,25 @@ def test_python_shim_lets_agents_run_bare_python():
     assert r.ok, r.output
     assert "42" in r.output
     assert "command not found" not in r.output
+
+
+def test_trusted_executor_bypasses_sandbox_for_credentials():
+    """A trusted framework adapter runs OUTSIDE the OS sandbox so it can reach its
+    own credentials (e.g. the keychain for a subscription login). Proof: a trusted
+    Toolbelt can read a host file OUTSIDE the worktree that a sandboxed one cannot."""
+    from loophole import sandbox as sb
+    from loophole.tools import Toolbelt
+    if sb.mechanism() not in ("seatbelt", "bwrap"):
+        pytest.skip("no OS sandbox on this host")
+    root = tempfile.mkdtemp(prefix="loophole_trust_")
+    secret = os.path.join(tempfile.mkdtemp(prefix="loophole_host_"), "cred")
+    with open(secret, "w") as f:
+        f.write("TOKEN123")
+    # sandboxed (confine_reads): cannot read the host file outside the worktree
+    sandboxed = Toolbelt(root, timeout=20, confine_reads=True)
+    r1 = sandboxed.run_shell("cat {}".format(secret))
+    assert "TOKEN123" not in r1.output
+    # trusted: bypasses the sandbox, can read it (as the framework's own creds)
+    trusted = Toolbelt(root, timeout=20, trusted=True)
+    r2 = trusted.run_shell("cat {}".format(secret))
+    assert r2.ok and "TOKEN123" in r2.output

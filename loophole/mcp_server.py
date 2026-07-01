@@ -41,15 +41,15 @@ class RunManager:
         self._runs: Dict[str, Any] = {}
         self._lock = threading.Lock()
 
-    def start(self, goal: str, verify: str, model: Optional[str] = None,
+    def start(self, goal: str, verify: str, model: str,
+              executor_name: Optional[str] = None,
               max_rounds: int = 6, workspace: Optional[str] = None) -> str:
         from .budget import Budget
         from .contract import GoalContract, Verifier, VerifierKind
         from .loop import LoopConfig, Roles, run_goal
-        from .provider import default_model, make_provider
+        from .provider import make_provider
         from .state import Store
 
-        model = model or default_model()            # auto: Chuzom if up, else local
         ws = os.path.realpath(workspace or tempfile.mkdtemp(prefix="loophole_mcp_"))
         _ensure_repo(ws)
         contract = GoalContract(
@@ -60,7 +60,8 @@ class RunManager:
         gid = store.create_goal(contract.to_json(), ws)
         provider = make_provider(model)
         roles = Roles(planner=provider, executor=provider, critic=provider)
-        cfg = LoopConfig(max_parallel=1, skip_plan_critique=True)
+        cfg = LoopConfig(max_parallel=1, skip_plan_critique=True,
+                         executor_name=executor_name)
 
         def _go() -> None:
             try:
@@ -127,10 +128,12 @@ def tool_specs() -> List[dict]:
              "goal": dict(s, description="What to build, in plain language."),
              "verify": dict(s, description="Shell command that exits 0 only when the "
                             "goal is met, e.g. 'pytest -q' or a python assertion."),
-             "model": dict(s, description="provider:model. Default auto-selects: "
-                           "'chuzom:auto' when Chuzom is running (cost-routed), else "
-                           "'ollama:qwen3-coder:30b' (local, $0). Pass 'chuzom:complex' "
-                           "to force Chuzom, or any provider:model."),
+             "route": dict(s, description="Where the work runs: 'auto' (default — your "
+                           "Claude subscription via the claude CLI when available, else "
+                           "Chuzom if up, else local), 'local' (Ollama, $0), or "
+                           "'subscription' (force Claude Code with your subscription)."),
+             "model": dict(s, description="Override the planning/local model "
+                           "(provider:model, default ollama:qwen3-coder:30b)."),
              "max_rounds": {"type": "integer", "description": "Max attempt rounds (default 6)."},
              "workspace": dict(s, description="Repo/dir to work in (default: a fresh temp repo)."),
          }, "required": ["goal", "verify"]}},
@@ -147,6 +150,32 @@ def tool_specs() -> List[dict]:
     ]
 
 
+def _claude_cli_available() -> bool:
+    import shutil
+    return shutil.which("claude") is not None
+
+
+def resolve_route(route: str, model: Optional[str]):
+    """Map a route to (model, executor_name, label). Subscription works out of the
+    box (opt-out): 'auto' uses your Claude subscription via the claude CLI when it's
+    available, else Chuzom if it's up, else a local Ollama coder ($0)."""
+    from .provider import detect_chuzom
+    route = (route or "auto").lower()
+    local = model or "ollama:qwen3-coder:30b"
+    if route == "local":
+        return local, None, "local ({})".format(local)
+    if route == "subscription":
+        if not _claude_cli_available():
+            return local, None, "local ({}) — no claude CLI for subscription".format(local)
+        return local, "claude-code", "subscription (Claude Code) · plan via {}".format(local)
+    # auto
+    if _claude_cli_available():
+        return local, "claude-code", "subscription (Claude Code, auto) · plan via {}".format(local)
+    if detect_chuzom():
+        return (model or "chuzom:auto"), None, "Chuzom (auto-detected)"
+    return local, None, "local ({})".format(local)
+
+
 def _text(s: str) -> dict:
     return {"content": [{"type": "text", "text": s}]}
 
@@ -157,16 +186,13 @@ def call_tool(name: str, args: Dict[str, Any], runs: RunManager) -> dict:
         goal, verify = args.get("goal"), args.get("verify")
         if not goal or not verify:
             return dict(_text("loophole_run needs both 'goal' and 'verify'."), isError=True)
-        from .provider import default_model
-        model = args.get("model") or default_model()
-        gid = runs.start(goal, verify, model=model,
+        model, executor_name, routing = resolve_route(args.get("route"), args.get("model"))
+        gid = runs.start(goal, verify, model=model, executor_name=executor_name,
                          max_rounds=int(args.get("max_rounds") or 6),
                          workspace=args.get("workspace"))
-        routing = ("Chuzom (auto-detected — cost-routed)" if model.startswith("chuzom")
-                   else model)
         from .stream import render_markdown_snapshot
         snap = render_markdown_snapshot(runs.store_for(gid), gid)
-        return _text("Started run `{}` · model: {}\n\n{}\n\n_Call loophole_status with "
+        return _text("Started run `{}` · route: {}\n\n{}\n\n_Call loophole_status with "
                      "this id to watch progress._".format(gid, routing, snap))
     if name == "loophole_status":
         gid = args.get("goal_id")

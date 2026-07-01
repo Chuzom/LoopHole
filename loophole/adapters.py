@@ -50,7 +50,12 @@ class ClaudeCodeExecutor(Executor):
     """Run the Claude Code CLI (`claude -p`) as each swarm worker. Streams its tool
     calls into the FORGE via `agent_step`; the verifier still owns 'done'."""
 
-    DEFAULT_CMD = "claude -p {task} --output-format stream-json --verbose"
+    # --permission-mode acceptEdits: in headless `-p` mode Claude Code otherwise only
+    # PROPOSES file edits (nothing lands on disk). acceptEdits auto-applies edits — the
+    # agent's job — without blanket-allowing arbitrary bash. The worktree is isolated
+    # and the verifier still owns 'done'.
+    DEFAULT_CMD = ("claude -p {task} --output-format stream-json --verbose "
+                   "--permission-mode acceptEdits")
 
     def __init__(self, config: Optional[dict] = None):
         config = config or {}
@@ -60,10 +65,16 @@ class ClaudeCodeExecutor(Executor):
         # works out of the box (still filesystem-confined; only THIS key passes through).
         self.network_hosts = tuple(config.get("network_hosts") or ()) or ("api.anthropic.com",)
         self.pass_env = tuple(config.get("pass_env") or ()) or ("ANTHROPIC_API_KEY",)
+        # Claude Code is a KNOWN-TRUSTED framework agent — run it outside the OS
+        # sandbox by DEFAULT so it can use your subscription login (keychain), which
+        # the sandbox blocks. Opt out with executor config {"trusted": False} (or
+        # `loophole run --executor-sandboxed`). The verifier still owns 'done'.
+        self.trusted = bool(config.get("trusted", True))
 
     def run(self, task, worktree: str, ctx: Optional[ExecContext] = None) -> ExecResult:
         belt = Toolbelt(worktree, timeout=self.shell_timeout,
-                        network_hosts=self.network_hosts, pass_env=self.pass_env)
+                        network_hosts=self.network_hosts, pass_env=self.pass_env,
+                        trusted=self.trusted)
         cmd = self.command.replace("{task}", shlex.quote(task.description))
         if ctx is not None:
             ctx.step("claude-code", "start")
