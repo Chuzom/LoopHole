@@ -41,43 +41,18 @@
 
 ## ▶️ See it work in 10 seconds — no setup, no API key
 
-After installing (below), run either demo. Both are fully self-contained — **no LLM, no keys, no config:**
+<div align="center">
+<img src="assets/loophole-demo.svg" alt="loophole demo: a naive agent says 'Done!' on buggy code, the check FAILS and loophole rejects it, then after the fix the check passes and only then is it VERIFIED DONE" width="760">
+</div>
+
+Both demos are fully self-contained — **no LLM, no keys, no config:**
 
 ```bash
-loophole demo          # 30-sec proof: a naive agent says "Done! ✅" on buggy code —
-                       # loophole REJECTS it (the check fails), then accepts once it's fixed.
+loophole demo          # the 30-sec proof above — a check rejects a fake "Done", then accepts the fix.
 loophole watch --demo  # watch the swarm work LIVE in your terminal (animated, no browser).
 ```
 
 `loophole demo` reaching **DONE** *only after the bug is fixed* is the whole idea in one command: **a check decides "done," never the agent.**
-
-<details>
-<summary>What that looks like (real <code>loophole demo</code> output)</summary>
-
-```text
-[1] A naive agent reports "Done! ✅" on buggy add() — return a - b
-    → loophole runs the check:  assert add(2,3)==5  ✗  FAIL
-    → loophole does NOT declare done. The false claim is caught.
-
-[2] The agent's completion claim is rejected:
-    "the candidate satisfies the declared Goal Contract under the trusted
-     verifier boundary" — NOT "the goal is provably achieved".
-
-[3] Now the bug is fixed (return a + b) and re-verified:
-
-================================================================
-loophole — Residual-Risk Report
-================================================================
-Outcome: DONE
-What was VERIFIED:
-  [PASS] hard:python3 -c "assert add(2,3)==5; assert add(-1,1)==0"
-================================================================
-    → Only now does loophole accept completion.
-
-Takeaway: 'done' means the verifier passed — not that an LLM said so.
-```
-
-</details>
 
 ---
 

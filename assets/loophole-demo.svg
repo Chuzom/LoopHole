@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 380" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17">
+  <defs>
+    <style>
+      .l { opacity: 0; }
+      .dim { fill: #8b949e; }
+      .txt { fill: #c9d1d9; }
+      .grn { fill: #3fb950; }
+      .red { fill: #f85149; }
+      .amb { fill: #d29922; }
+      .pur { fill: #a371f7; }
+      .b  { font-weight: 700; }
+    </style>
+  </defs>
+
+  <!-- window -->
+  <rect x="1" y="1" width="758" height="378" rx="12" fill="#0d1117" stroke="#30363d"/>
+  <rect x="1" y="1" width="758" height="40" rx="12" fill="#161b22"/>
+  <rect x="1" y="28" width="758" height="14" fill="#161b22"/>
+  <circle cx="24" cy="21" r="6" fill="#f85149"/>
+  <circle cx="46" cy="21" r="6" fill="#d29922"/>
+  <circle cx="68" cy="21" r="6" fill="#3fb950"/>
+  <text x="380" y="26" text-anchor="middle" class="dim" font-size="13">loophole demo — a check decides "done"</text>
+
+  <!-- prompt + command -->
+  <text x="24" y="78"><tspan class="grn">$</tspan> <tspan class="txt">loophole demo</tspan></text>
+
+  <!-- animated lines (each fades in on schedule; all reset at loop end) -->
+  <g class="l"><text x="24" y="120"><tspan class="dim">•</tspan> <tspan class="txt">agent writes add(a,b): </tspan><tspan class="amb">return a - b</tspan></text>
+    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.09;0.12;0.97;1"/></g>
+
+  <g class="l"><text x="24" y="152"><tspan class="dim">•</tspan> <tspan class="txt">agent: </tspan><tspan class="b txt">"Done! ✅"</tspan></text>
+    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.16;0.19;0.97;1"/></g>
+
+  <g class="l"><text x="24" y="184"><tspan class="dim">•</tspan> <tspan class="txt">verify: </tspan><tspan class="dim">assert add(2,3)==5</tspan>  <tspan class="red b">✗ FAIL</tspan></text>
+    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.27;0.30;0.97;1"/></g>
+
+  <g class="l"><text x="24" y="216"><tspan class="amb b">✗</tspan> <tspan class="amb">loophole REJECTS the claim — the agent doesn't get to decide.</tspan></text>
+    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.38;0.41;0.97;1"/></g>
+
+  <g class="l"><text x="24" y="256"><tspan class="dim">•</tspan> <tspan class="txt">fix applied: </tspan><tspan class="grn">return a + b</tspan></text>
+    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.52;0.55;0.97;1"/></g>
+
+  <g class="l"><text x="24" y="288"><tspan class="dim">•</tspan> <tspan class="txt">verify: </tspan><tspan class="dim">assert add(2,3)==5</tspan>  <tspan class="grn b">✓ PASS</tspan></text>
+    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.63;0.66;0.97;1"/></g>
+
+  <g class="l"><text x="24" y="328"><tspan class="grn b">✓ VERIFIED DONE</tspan>  <tspan class="dim">— a check said so, not the agent.</tspan></text>
+    <animate attributeName="opacity" dur="11s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;0.74;0.78;0.97;1"/></g>
+
+  <!-- blinking cursor -->
+  <rect x="24" y="346" width="10" height="19" fill="#c9d1d9">
+    <animate attributeName="opacity" values="1;1;0;0" dur="1s" repeatCount="indefinite"/>
+  </rect>
+</svg>
