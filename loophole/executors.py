@@ -62,6 +62,11 @@ def load_executors() -> List[str]:
         return registered_executors()
     _LOADED = True
     api = ExecutorAPI()
+    try:                                    # built-in framework adapters (Phase 2)
+        from . import adapters
+        adapters.register(api)
+    except Exception:
+        pass
     try:
         from importlib.metadata import entry_points
         eps = entry_points()
