@@ -9,11 +9,31 @@
 **The acceptance layer for autonomous coding — "CI for AI agents." Bring your own agent; loophole is the trusted gate that decides what's _actually_ done.**
 
 [![ci](https://github.com/Chuzom/loophole/actions/workflows/ci.yml/badge.svg)](https://github.com/Chuzom/loophole/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/tests-242%20passing-3fb950)](tests/)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab)](#)
 [![providers](https://img.shields.io/badge/providers-Ollama%20%C2%B7%20Anthropic%20%C2%B7%20OpenAI-8b5cf6)](#)
+[![sandbox](https://img.shields.io/badge/sandbox-Seatbelt%20%C2%B7%20bubblewrap-f59e0b)](#anti-reward-hacking-the-part-most-tools-skip)
 [![license](https://img.shields.io/badge/license-MIT-64748b)](LICENSE)
 
 </div>
+
+---
+
+<details>
+<summary><b>Contents</b></summary>
+
+- [See it work in 10 seconds](#️-see-it-work-in-10-seconds--no-setup-no-api-key)
+- [The problem](#the-problem) · [The idea](#the-idea)
+- [60-second quickstart](#60-second-quickstart)
+- [How it works](#how-it-works) · [Three kinds of "done"](#three-kinds-of-done)
+- [Anti-reward-hacking](#anti-reward-hacking-the-part-most-tools-skip)
+- [CLI](#cli) · [Providers](#providers)
+- [Bring your own executor](#bring-your-own-executor)
+- [For teams — CI acceptance gate](#for-teams--loophole-as-a-ci-acceptance-gate)
+- [Honest status & safety](#honest-status--safety) · [Roadmap](#roadmap)
+- [Contributing](#contributing) · [License](#license)
+
+</details>
 
 ---
 
@@ -28,6 +48,36 @@ loophole watch --demo  # watch the swarm work LIVE in your terminal (animated, n
 ```
 
 `loophole demo` reaching **DONE** *only after the bug is fixed* is the whole idea in one command: **a check decides "done," never the agent.**
+
+<details>
+<summary>What that looks like (real <code>loophole demo</code> output)</summary>
+
+```text
+[1] A naive agent reports "Done! ✅" on buggy add() — return a - b
+    → loophole runs the check:  assert add(2,3)==5  ✗  FAIL
+    → loophole does NOT declare done. The false claim is caught.
+
+[2] The agent's completion claim is rejected:
+    "the candidate satisfies the declared Goal Contract under the trusted
+     verifier boundary" — NOT "the goal is provably achieved".
+
+[3] Now the bug is fixed (return a + b) and re-verified:
+
+================================================================
+loophole — Residual-Risk Report
+================================================================
+Outcome: DONE
+What was VERIFIED:
+  [PASS] hard:python3 -c "assert add(2,3)==5; assert add(-1,1)==0"
+================================================================
+    → Only now does loophole accept completion.
+
+Takeaway: 'done' means the verifier passed — not that an LLM said so.
+```
+
+</details>
+
+---
 
 ## The problem
 
@@ -119,6 +169,7 @@ Because the verifier *is* the goalpost, loophole defends it:
 - **Test-count audit** — the suite can't silently shrink to make red turn green.
 - **No fake "done"** — if an agent claims completion but changed nothing, it's rejected.
 - **Secrets never reach verifiers** — your `ANTHROPIC_API_KEY` and friends are scrubbed from the subprocess environment.
+- **Scoped egress** — an executor granted network access reaches *only* the hosts you declare (macOS: enforced via a localhost-only jail + a host-allowlisted proxy; denied hosts are 403'd and audited).
 
 ## CLI
 
@@ -237,18 +288,24 @@ audited by a multi-model council; we publish our own findings.
 
 ## Roadmap
 
-Shipped: OS sandbox for `run_shell`/verifiers · enforced per-task write-globs at
-commit · per-merge re-verification (verified-green invariant) · fail-closed soft
-judge · pluggable executors (bring-your-own-agent) · audit trail · shareable
-contracts + templates · **contract registry (local + remote index)** · **value
-scorecard + `loophole stats`** · **module SDK** (graded, domain-specific verifiers) ·
-**Chuzom-routed models** (cost-optimized model selection with the verifier as the net).
+**Shipped**
 
-Next (the acceptance-layer bet — *"CI for AI agents," bring-your-own-executor*):
+- [x] OS sandbox for `run_shell`/verifiers (Seatbelt/bubblewrap, deny-by-default, fail-closed)
+- [x] Enforced per-task write-globs at commit · per-merge re-verification (verified-green invariant)
+- [x] Fail-closed soft judge · verifier-adversary pre-flight review
+- [x] Pluggable executors (bring-your-own-agent) · built-in Claude Code adapter
+- [x] Audit trail · shareable contracts + templates · contract registry (local + remote index)
+- [x] Value scorecard + `loophole stats` · module SDK (graded, domain-specific verifiers)
+- [x] Chuzom-routed models — with verifier verdicts fed back as **ground-truth routing quality**
+- [x] **Enforced scoped egress** (localhost jail + host-allowlisted proxy) on macOS
+- [x] History-grounded `loophole estimate` · goal finish-reasons surfaced in `status`/`audit`
+
+**Next** — the acceptance-layer bet (*"CI for AI agents," bring-your-own-executor*):
 
 - [ ] Hosted control-plane (run history, audit, policy, fleet dashboards)
 - [ ] First-class executor adapters for frontier coding agents
 - [ ] Richer verifier adapters (coverage, mutation testing)
+- [ ] bubblewrap netns egress scoping (Linux parity with the macOS proxy)
 
 ## Contributing
 
