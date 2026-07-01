@@ -171,9 +171,19 @@ def executor() -> None:
 
 @executor.command("list")
 def executor_list() -> None:
-    """List known executor adapters and their --executor-command strings."""
+    """List executor backends — command templates + registered framework adapters."""
+    click.echo("command templates (use with --executor-command):")
     for name, cmd in _EXECUTOR_ADAPTERS.items():
-        click.echo("{:14} loophole run --executor-command '{}'".format(name, cmd))
+        click.echo("  {:14} loophole run --executor-command '{}'".format(name, cmd))
+    from . import executors as _ex
+    adapters = _ex.load_executors()
+    click.echo("\nframework adapters (use with --executor <name>):")
+    if adapters:
+        for name in adapters:
+            click.echo("  {:14} loophole run --executor {}".format(name, name))
+    else:
+        click.echo("  (none installed — pip-install a loophole executor adapter, or "
+                   "register one via the `loophole.executors` entry point)")
     click.echo("\n{task} is replaced with the (shell-quoted) task description.")
 
 
@@ -333,6 +343,9 @@ def contract_show(path: str) -> None:
               help="Bring-your-own executor: run an external agent CLI instead of "
                    "the built-in ReAct loop, e.g. 'claude -p {task}'. The agent is "
                    "sandboxed and the verifier boundary still governs 'done'.")
+@click.option("--executor", "executor_name", default=None,
+              help="Use a registered framework ADAPTER as each swarm worker "
+                   "(see `loophole executor list`). The verifier boundary is unchanged.")
 @click.option("--critic-model", default=None, help="provider:model for critique (default: planner).")
 @click.option("--cheap-model", default=None, help="provider:model for budget auto-downgrade.")
 @click.option("--max-parallel", default=4, type=int)
@@ -347,7 +360,7 @@ def contract_show(path: str) -> None:
 def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[str],
         human: bool, workspace: str, watch_live: Optional[bool],
         planner_model: str, executor_model: str, executor_command: Optional[str],
-        critic_model: Optional[str],
+        executor_name: Optional[str], critic_model: Optional[str],
         cheap_model: Optional[str], max_parallel: int, max_rounds: int,
         max_cost: float, max_tokens: int, protect: tuple,
         expect_test_delta: Optional[int], skip_critique: bool, db: Optional[str]) -> None:
@@ -414,7 +427,7 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
     budget = Budget(max_cost_usd=contract.max_cost_usd, max_tokens=contract.max_tokens)
     cfg = LoopConfig(max_parallel=max_parallel, skip_plan_critique=skip_critique,
                      on_human=_human_checkpoint if contract.human_verifiers else None,
-                     executor_command=executor_command)
+                     executor_command=executor_command, executor_name=executor_name)
 
     # Enforce THE FORGE by default: any interactive `loophole run` shows the live
     # swarm UI. We only fall back to the plain log when output isn't a TTY (piped,

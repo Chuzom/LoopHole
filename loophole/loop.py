@@ -66,6 +66,8 @@ class LoopConfig:
     on_human: Optional[Callable[[str], bool]] = None   # human checkpoint callback
     executor_command: Optional[str] = None  # VIS-1: bring-your-own external agent
                                             # (e.g. 'claude -p {task}'); None = ReAct
+    executor_name: Optional[str] = None     # a registered framework adapter (--executor)
+    executor_config: dict = field(default_factory=dict)  # adapter knobs
 
 
 @dataclass
@@ -292,8 +294,9 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
              budget: Budget, cfg: LoopConfig,
              log: Optional[Callable[[str], None]] = None) -> LoopOutcome:
     say = log or (lambda m: None)
-    from . import plugins
-    plugins.load_modules()   # discover installed modules (idempotent)
+    from . import plugins, executors
+    plugins.load_modules()      # discover installed modules (idempotent)
+    executors.load_executors()  # discover installed executor adapters (idempotent)
     # Work on a private copy so loop-local tweaks (e.g. forcing max_parallel=1 in
     # shared-workspace mode) never mutate the caller's LoopConfig.
     cfg = replace(cfg)
@@ -535,15 +538,23 @@ def _run_batch(store: Store, integ: Integration, roles: Roles, budget: Budget,
         with integ.git_lock:
             wt = integ.make_worktree(wid, base_commit=integ.head())
         try:
-            # VIS-1: the executor is a pluggable backend. An external "bring-your-
-            # own" agent runs as a black box; the verifier boundary is unchanged.
-            if cfg.executor_command:
+            # VIS-1: the executor is a pluggable backend — a registered framework
+            # adapter, an external "bring-your-own" agent, or the built-in ReAct loop.
+            # The verifier boundary is identical regardless of backend.
+            if cfg.executor_name:
+                from .executors import resolve_executor
+                executor = resolve_executor(cfg.executor_name, {
+                    "command": cfg.executor_command, "provider": roles.executor,
+                    "shell_timeout": cfg.shell_timeout, **cfg.executor_config})
+            elif cfg.executor_command:
                 executor = CommandExecutor(cfg.executor_command,
                                            shell_timeout=cfg.shell_timeout)
             else:
                 executor = ReActExecutor(roles.executor, max_steps=cfg.exec_max_steps,
                                          shell_timeout=cfg.shell_timeout)
-            res: ExecResult = executor.run(task, wt)
+            from .executor import ExecContext
+            ctx = ExecContext(store=store, goal_id=goal_id, task_id=task.id)
+            res: ExecResult = executor.run(task, wt, ctx)
             cost = roles.executor.price_in * res.prompt_tokens / 1000.0 + \
                    roles.executor.price_out * res.completion_tokens / 1000.0
             budget.charge(cost, res.total_tokens)

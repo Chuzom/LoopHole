@@ -16,7 +16,7 @@ import os
 import shlex
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from .provider import Provider, Msg, Completion
 from .tools import Toolbelt, tool_schemas
@@ -50,12 +50,34 @@ class ExecResult:
         return self.prompt_tokens + self.completion_tokens
 
 
+@dataclass
+class ExecContext:
+    """Handed to an executor so a framework ADAPTER can stream its internal steps to
+    the FORGE / audit log without importing core internals. All fields optional, so a
+    black-box executor can ignore it and old 2-arg callers still work."""
+    store: Any = None
+    goal_id: Optional[str] = None
+    task_id: Optional[str] = None
+
+    def step(self, tool: str, note: str = "") -> None:
+        """Record one internal agent step (a tool call, sub-agent, thought)."""
+        if self.store is not None and self.goal_id is not None:
+            try:
+                self.store.log("agent_step", goal_id=self.goal_id, task_id=self.task_id,
+                               payload={"tool": tool, "note": (note or "")[:200]})
+            except Exception:
+                pass
+
+
 class Executor(ABC):
     """A swappable worker. Given a task and its sandboxed worktree, attempt the
-    work and return an ExecResult. It NEVER decides 'done' — the verifier does."""
+    work and return an ExecResult. It NEVER decides 'done' — the verifier does.
+
+    ``ctx`` (optional) lets a framework adapter emit ``agent_step`` events."""
 
     @abstractmethod
-    def run(self, task: Task, worktree: str) -> ExecResult:
+    def run(self, task: Task, worktree: str,
+            ctx: Optional[ExecContext] = None) -> ExecResult:
         ...
 
 
@@ -71,7 +93,8 @@ class ReActExecutor(Executor):
         self.shell_timeout = shell_timeout
         self.allow_unsandboxed = allow_unsandboxed
 
-    def run(self, task: Task, worktree: str) -> ExecResult:
+    def run(self, task: Task, worktree: str,
+            ctx: Optional[ExecContext] = None) -> ExecResult:
         belt = Toolbelt(worktree, timeout=self.shell_timeout,
                         allow_unsandboxed=self.allow_unsandboxed)
         schemas = tool_schemas()
@@ -95,6 +118,8 @@ class ReActExecutor(Executor):
                 for tc in comp.tool_calls:
                     result = belt.dispatch(tc.name, tc.arguments)
                     tools_used += 1
+                    if ctx is not None:
+                        ctx.step(tc.name, str(result)[:80])   # stream to the FORGE
                     msgs.append(Msg("tool", str(result)[:6000], name=tc.name,
                                     tool_call_id=tc.id))
                 continue
@@ -146,12 +171,15 @@ class CommandExecutor(Executor):
         self.shell_timeout = shell_timeout
         self.allow_unsandboxed = allow_unsandboxed
 
-    def run(self, task: Task, worktree: str) -> ExecResult:
+    def run(self, task: Task, worktree: str,
+            ctx: Optional[ExecContext] = None) -> ExecResult:
         belt = Toolbelt(worktree, timeout=self.shell_timeout,
                         allow_unsandboxed=self.allow_unsandboxed)
         # Make the task available as a file too (some agents take a prompt file).
         belt.write_file("TASK.md", "# Task\n\n{}\n".format(task.description))
         cmd = self.command_template.replace("{task}", shlex.quote(task.description))
+        if ctx is not None:
+            ctx.step("external-agent", cmd[:80])
         result = belt.run_shell(cmd)
         # TASK.md is orchestrator scaffolding for the agent to READ — not agent output.
         # Remove it after the run so it never counts against the per-task write-allowlist
