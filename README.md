@@ -8,7 +8,7 @@
 
 **The acceptance layer for autonomous coding — "CI for AI agents." Bring your own agent; loophole is the trusted gate that decides what's _actually_ done.**
 
-[![tests](https://img.shields.io/badge/tests-173%20passing-22c55e)](#)
+[![ci](https://github.com/Chuzom/loophole/actions/workflows/ci.yml/badge.svg)](https://github.com/Chuzom/loophole/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab)](#)
 [![providers](https://img.shields.io/badge/providers-Ollama%20%C2%B7%20Anthropic%20%C2%B7%20OpenAI-8b5cf6)](#)
 [![license](https://img.shields.io/badge/license-MIT-64748b)](LICENSE)
