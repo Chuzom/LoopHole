@@ -1,0 +1,29 @@
+name: release
+
+# Build + publish to PyPI on a version tag, via Trusted Publishing (OIDC) — no API
+# token stored in the repo. To use: (1) rename `name` in pyproject.toml to an
+# available PyPI name, (2) configure a Trusted Publisher on PyPI for this repo +
+# this workflow (or a "pending publisher" for the first release), (3) push a tag:
+#   git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write        # OIDC identity for PyPI Trusted Publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install -U build twine
+          python -m build
+          twine check dist/*
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
