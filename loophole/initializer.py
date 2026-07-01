@@ -145,12 +145,33 @@ def detect_contract(repo: str) -> Tuple[GoalContract, List[str]]:
 
 
 def write_starter(contract: GoalContract, path: str) -> None:
-    """Write the contract as JSON with a leading _help key (JSON has no comments)."""
+    """Write the contract as JSON with a leading _help key (JSON has no comments).
+
+    Empty/default fields are omitted so the scaffold reads as the few things a
+    human actually edits, not a wall of ``null``s. ``from_dict`` refills every
+    default on load, so the compacted file is equivalent."""
     data = json.loads(contract.to_json())
+    data["verifiers"] = [_compact_verifier(v) for v in data.get("verifiers", [])]
+    for k in ("acceptance_criteria", "non_functional"):
+        if not data.get(k):
+            data.pop(k, None)
     out = {"_help": _HELP}
     out.update(data)
     with open(path, "w", encoding="utf-8") as f:
         f.write(json.dumps(out, indent=2) + "\n")
+
+
+# fields dropped from a scaffolded verifier when they hold their default/empty value
+_VERIFIER_DEFAULTS = {
+    "command": None, "rubric": None, "prompt": None, "trusted_inputs": [],
+    "protected_paths": [], "expected_test_delta": None, "environment": {},
+    "allow_network": False, "params": {},
+}
+
+
+def _compact_verifier(v: dict) -> dict:
+    return {k: val for k, val in v.items()
+            if k not in _VERIFIER_DEFAULTS or val != _VERIFIER_DEFAULTS[k]}
 
 
 def load_contract(path: str) -> GoalContract:

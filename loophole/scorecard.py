@@ -106,4 +106,5 @@ def render_aggregate(agg: Dict[str, Any], color: bool = True) -> str:
         "  {} candidate(s) rejected before acceptance".format(agg["total_rejections"]),
         "  {}{} cheat(s) blocked across all runs{}".format(g, agg["total_cheats_blocked"], rst),
         dim + "  every 'done' above was verifier-backed — that's the guarantee." + rst,
+        dim + "  details: loophole runs  ·  loophole audit <goal-id>" + rst,
     ])

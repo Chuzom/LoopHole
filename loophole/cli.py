@@ -713,20 +713,12 @@ def stats(db: Optional[str]) -> None:
         store.close()
 
 
-@main.command(name="ls")
+@main.command(name="ls", hidden=True)
 @click.option("--db", default=None)
-def ls(db: Optional[str]) -> None:
-    """List all goals."""
-    store = Store(db or _default_db())
-    goals = store.list_goals()
-    if not goals:
-        click.echo(_no_runs_hint())
-    for g in goals:
-        contract = GoalContract.from_json(g["contract"])
-        color = {"done": "green", "failed": "red", "paused": "yellow"}.get(g["status"], "white")
-        click.echo(click.style("{:8}".format(g["status"]), fg=color) + " " +
-                   g["id"] + "  " + contract.goal[:60])
-    store.close()
+@click.pass_context
+def ls(ctx: click.Context, db: Optional[str]) -> None:
+    """Alias of `runs` (kept for muscle memory)."""
+    ctx.invoke(runs, db=db)
 
 
 @main.command()

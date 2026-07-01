@@ -748,6 +748,13 @@ def _finish(store: Store, goal_id: str, status: str, rounds: int,
               payload={"spent_usd": budget.spent_usd,
                        "spent_tokens": budget.spent_tokens,
                        "rounds": rounds, "status": status})
+    # A goal that reached 'done' at the round level can leave residual
+    # 'pending'/'ready' verify tasks the loop no longer needs — relabel them so
+    # `loophole status` on a done goal doesn't show contradictory [pending] rows.
+    if status == "done":
+        for t in store.tasks_for_goal(goal_id):
+            if t.status in ("pending", "ready"):
+                store.set_task_status(t.id, "superseded", goal_id)
     store.set_goal_status(goal_id, status, detail=detail)
     integ = Integration(store.get_goal(goal_id)["workspace"])
     integ.cleanup_worktrees()
