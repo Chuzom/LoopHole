@@ -27,11 +27,17 @@ class CritiqueResult:
     raw: str = ""
 
 
-_CRITIC_SYSTEM = """You review a proposed task DAG against a goal. Be skeptical.
-Identify: missing tasks, tasks that solve the WRONG problem, wrong dependencies,
-and anything that would make the goal unmet even if every task succeeds.
+_CRITIC_SYSTEM = """You review a proposed task DAG against a goal. Each task will be
+executed by a capable coding agent with file and shell tools — a task description
+is an instruction to that agent, not the implementation itself; brief is fine.
+Reject ONLY for structural defects:
+- missing work: no task produces what the goal (or its verifier) needs,
+- a task solves the WRONG problem,
+- wrong or missing dependencies between tasks.
+Do NOT reject because a description is brief, lacks implementation detail, or
+does not spell out file contents or test commands — the executor decides those.
 Return ONLY JSON: {"approved": true|false, "issues": ["..."]}.
-Approve only if the plan, fully executed, would plausibly satisfy the goal."""
+Approve if the plan, executed competently, would plausibly satisfy the goal."""
 
 _ADVERSARY_SYSTEM = """You are a red-teamer attacking an acceptance verifier.
 Given a goal and its verifiers, list concrete ways an agent could make the
