@@ -34,10 +34,43 @@ def _say(msg: str) -> None:
     click.echo(click.style("• ", fg="cyan") + msg)
 
 
-@click.group()
+def _no_runs_hint() -> str:
+    return (click.style("no runs yet.", fg="bright_black") + " Try "
+            + click.style("loophole demo", fg="cyan") + " or "
+            + click.style('loophole run "<goal>" --verify "pytest -q"', fg="cyan"))
+
+
+def _welcome() -> None:
+    """Friendly first-run orientation shown on a bare `loophole`."""
+    b = lambda s: click.style(s, bold=True)
+    c = lambda s: click.style(s, fg="cyan")
+    d = lambda s: click.style(s, fg="bright_black")
+    click.echo()
+    click.echo("  ⚒  " + b("loophole") + " — a swarm of agents that works until a check "
+               + b("proves") + " the goal is done.")
+    click.echo(d("     (a check decides \"done\" — never the agent.)"))
+    click.echo()
+    click.echo("  " + b("See it work in 10 seconds") + d("  (no setup, no API key):"))
+    click.echo("    " + c("loophole demo") + d("          a naive agent says \"Done!\" on "
+               "buggy code — loophole refuses, then accepts once it's fixed"))
+    click.echo("    " + c("loophole watch --demo") + d("  watch the swarm work live in your terminal"))
+    click.echo()
+    click.echo("  " + b("Start on your own goal:"))
+    click.echo("    " + c("loophole init") + d("          scaffold a loophole.json (infers a starter from your repo)"))
+    click.echo("    " + c("loophole run \"<goal>\" --verify \"pytest -q\""))
+    click.echo()
+    click.echo(d("  ") + c("loophole --help") + d("  all commands   ·   ")
+               + c("loophole stats") + d("  your value scorecard"))
+    click.echo()
+
+
+@click.group(invoke_without_command=True)
 @click.version_option(__version__, prog_name="loophole")
-def main() -> None:
+@click.pass_context
+def main(ctx: click.Context) -> None:
     """loophole — a swarm of agents that work until an acceptance contract passes."""
+    if ctx.invoked_subcommand is None:
+        _welcome()
 
 
 @main.command()
@@ -599,8 +632,11 @@ def audit(goal_id: str, db: Optional[str]) -> None:
 def runs(db: Optional[str]) -> None:
     """List past runs with their outcome."""
     store = Store(db or _default_db())
-    click.echo(render_runs(store.list_goals(),
-                           lambda g: GoalContract.from_json(g["contract"]).goal))
+    goals = store.list_goals()
+    if not goals:
+        click.echo(_no_runs_hint())
+    else:
+        click.echo(render_runs(goals, lambda g: GoalContract.from_json(g["contract"]).goal))
     store.close()
 
 
@@ -621,7 +657,10 @@ def stats(db: Optional[str]) -> None:
 def ls(db: Optional[str]) -> None:
     """List all goals."""
     store = Store(db or _default_db())
-    for g in store.list_goals():
+    goals = store.list_goals()
+    if not goals:
+        click.echo(_no_runs_hint())
+    for g in goals:
         contract = GoalContract.from_json(g["contract"])
         color = {"done": "green", "failed": "red", "paused": "yellow"}.get(g["status"], "white")
         click.echo(click.style("{:8}".format(g["status"]), fg=color) + " " +
