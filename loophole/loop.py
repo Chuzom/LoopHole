@@ -314,6 +314,13 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
     # Work on a private copy so loop-local tweaks (e.g. forcing max_parallel=1 in
     # shared-workspace mode) never mutate the caller's LoopConfig.
     cfg = replace(cfg)
+    # Charge planner/critic (and downgrade-target) calls to the budget — the
+    # executor path charges itself from ExecResult, so it stays unwrapped.
+    from .provider import ChargingProvider
+    roles = replace(roles,
+                    planner=ChargingProvider(roles.planner, budget),
+                    critic=ChargingProvider(roles.critic, budget),
+                    cheap=ChargingProvider(roles.cheap, budget) if roles.cheap else None)
     goal_row = store.get_goal(goal_id)
     if goal_row is None:  # C7 fix: controlled failure on missing/deleted goal
         raise ValueError("no such goal: {}".format(goal_id))

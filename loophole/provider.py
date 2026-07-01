@@ -72,6 +72,30 @@ class Provider(ABC):
                (c.completion_tokens / 1000.0) * self.price_out
 
 
+class ChargingProvider:
+    """Proxy that charges a Budget for every completion.
+
+    Planner / critic / verifier-adversary calls previously bypassed budget
+    accounting entirely (only the executor path charged), so ceilings didn't
+    bind them and run_spend under-reported. Wrap a role's provider once and
+    every ``complete()`` is charged at that provider's prices.
+    """
+
+    def __init__(self, inner: "Provider", budget: Any):
+        self._inner = inner
+        self._budget = budget
+
+    def __getattr__(self, name: str) -> Any:      # delegate name/prices/etc.
+        return getattr(self._inner, name)
+
+    def complete(self, msgs: List["Msg"], tools: Optional[List[dict]] = None,
+                 max_tokens: int = 4096, temperature: float = 0.2) -> "Completion":
+        c = self._inner.complete(msgs, tools=tools, max_tokens=max_tokens,
+                                 temperature=temperature)
+        self._budget.charge(self._inner.cost(c), c.total_tokens)
+        return c
+
+
 def _llm_timeout() -> float:
     """Per-call LLM timeout in seconds (LOOPHOLE_LLM_TIMEOUT_S, default 600).
     Bounds every provider call so a hung model server fails the call (which the
