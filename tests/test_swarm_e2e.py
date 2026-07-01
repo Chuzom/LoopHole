@@ -41,7 +41,7 @@ def _git_ws():
     return ws
 
 
-_ADD_VERIFIER = ('python3 -c "from add import add; assert add(2,3)==5; '
+_ADD_VERIFIER = ('/usr/bin/python3 -c "from add import add; assert add(2,3)==5; '
                  'assert add(0,0)==0; print(\'ok\')"')
 
 

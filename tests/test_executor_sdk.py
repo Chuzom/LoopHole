@@ -104,7 +104,7 @@ def test_adapter_drives_real_run_via_executor_name():
                    "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
                    "GIT_COMMITTER_EMAIL": "t@t"})
     contract = GoalContract(goal="add", verifiers=[Verifier(kind=VerifierKind.HARD,
-        command='python3 -c "from add import add; assert add(2,3)==5; print(1)"')],
+        command='/usr/bin/python3 -c "from add import add; assert add(2,3)==5; print(1)"')],
         allowed_writes=["**"], max_rounds=4, timeout_seconds=90)
     s = Store(os.path.join(ws, ".db"))
     gid = s.create_goal(contract.to_json(), ws)
