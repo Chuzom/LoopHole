@@ -109,6 +109,23 @@ def test_python_shim_lets_agents_run_bare_python():
     assert "command not found" not in r.output
 
 
+def test_venv_python_is_not_confine_safe():
+    """A venv interpreter must be shimmed under read-confinement: starting it
+    reads pyvenv.cfg outside the confined read set. Venv-ness follows from the
+    INVOKED path (pyvenv.cfg beside/above it), not the symlink's realpath,
+    which typically resolves into a readable system prefix."""
+    from loophole.tools import _confine_safe
+    venv = tempfile.mkdtemp(prefix="loophole_fake_venv_")
+    os.makedirs(os.path.join(venv, "bin"))
+    with open(os.path.join(venv, "pyvenv.cfg"), "w") as f:
+        f.write("home = /usr/bin\n")
+    py = os.path.join(venv, "bin", "python")
+    os.symlink("/usr/bin/python3", py)
+    assert not _confine_safe(py), "venv python must not count as confine-safe"
+    if os.path.exists("/usr/bin/python3"):
+        assert _confine_safe("/usr/bin/python3")
+
+
 def test_trusted_executor_bypasses_sandbox_for_credentials():
     """A trusted framework adapter runs OUTSIDE the OS sandbox so it can reach its
     own credentials (e.g. the keychain for a subscription login). Proof: a trusted

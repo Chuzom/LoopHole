@@ -26,22 +26,48 @@ from typing import Any, Callable, Dict, List, Optional
 from ..sandbox import SandboxPolicy, SandboxUnavailable, scrub_env, wrap
 
 
-def _python_shim_dir() -> Optional[str]:
+def _confine_safe(path: Optional[str]) -> bool:
+    """Whether an interpreter at ``path`` can start under read-confinement.
+    A venv interpreter can't: startup reads ``pyvenv.cfg`` (and the venv tree)
+    outside the confined read set — and venv-ness follows from the INVOKED
+    path (pyvenv.cfg beside/above it), not the symlink target, which typically
+    resolves into a readable system prefix. Non-venv interpreters are safe only
+    inside the system prefixes the confined profile allows."""
+    if not path:
+        return False
+    d = os.path.dirname(os.path.abspath(path))
+    if os.path.exists(os.path.join(d, "pyvenv.cfg")) or \
+       os.path.exists(os.path.join(os.path.dirname(d), "pyvenv.cfg")):
+        return False
+    real = os.path.realpath(path)
+    return real.startswith(("/usr/", "/bin/", "/sbin/", "/System/", "/Library/"))
+
+
+def _python_shim_dir(confine_reads: bool = True) -> Optional[str]:
     """Modern macOS (and slim Linux images) ship only ``python3`` — but coding
     agents reflexively run ``python foo.py`` and then loop on 'command not found'.
-    If ``python`` is missing but ``python3`` exists, build a tiny shim dir with a
-    ``python`` launcher so out-of-the-box runs just work. Returns the dir (to put
-    on PATH and mark sandbox-readable) or None when no shim is needed/possible."""
-    if shutil.which("python"):
+    Build a tiny shim dir with ``python``/``python3`` launchers when the PATH
+    interpreter is missing — or, under read-confinement, when it resolves to an
+    interpreter the sandbox can't start (e.g. a venv outside the worktree).
+    Returns the dir (to put on PATH and mark sandbox-readable) or None when no
+    shim is needed/possible."""
+    have = shutil.which("python")
+    if have and (not confine_reads or _confine_safe(have)):
         return None
-    py3 = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else shutil.which("python3")
+    py3 = None
+    for cand in ("/usr/bin/python3", shutil.which("python3")):
+        if cand and os.path.exists(cand) and (not confine_reads or _confine_safe(cand)):
+            py3 = cand
+            break
     if not py3:
         return None
     d = tempfile.mkdtemp(prefix="loophole_shim_")
-    shim = os.path.join(d, "python")
-    with open(shim, "w") as f:
-        f.write('#!/bin/sh\nexec "{}" "$@"\n'.format(py3))
-    os.chmod(shim, 0o755)
+    # shim `python3` too: under confinement a venv python3 on PATH is just as dead
+    for name in ("python", "python3"):
+        shim = os.path.join(d, name)
+        with open(shim, "w") as f:
+            f.write('#!/bin/sh\nexec "{}" "$@"\n'.format(py3))
+        os.chmod(shim, 0o755)
     return d
 
 
@@ -74,14 +100,17 @@ class Toolbelt:
         # ITS api key. Both empty by default (network denied, all secrets scrubbed).
         self.network_hosts = tuple(network_hosts)
         self.pass_env = tuple(pass_env)
-        # Give the agent shell a `python` -> `python3` shim when the host lacks a
-        # bare `python` (modern macOS), so agents don't dead-loop on 'command not
-        # found'. The dir is made sandbox-readable and prepended to PATH per run.
-        self._shim_dir = _python_shim_dir()
         # SEC-2: run_shell is the UNTRUSTED agent shell — confine its reads by
         # default so it can't `cat ~/.ssh/id_rsa` and persist host secrets into the
         # task DB. Overridable for commands that legitimately need broader reads.
+        # (Verifier commands run under SandboxPolicy's own default — reads open —
+        # since they routinely need project venvs/toolchains outside the worktree.)
         self.confine_reads = confine_reads
+        # Give the agent shell `python`/`python3` shims when the PATH interpreter
+        # is missing (modern macOS) or unreadable under confinement (a venv), so
+        # agents don't dead-loop on 'command not found'. Trusted executors run
+        # outside the OS sandbox, so only a genuinely missing `python` needs one.
+        self._shim_dir = _python_shim_dir(confine_reads and not trusted)
 
     # ---- path safety -----------------------------------------------------
     def _resolve(self, path: str) -> str:
@@ -137,6 +166,11 @@ class Toolbelt:
             except SandboxUnavailable as e:
                 return ToolResult(False, "sandbox unavailable: {}".format(e))
         env = scrub_env({}, keep=self.pass_env)
+        if not self.trusted:
+            # macOS venv marker: makes any spawned python believe it's in the
+            # parent's venv and read its (sandbox-unreadable) pyvenv.cfg. The
+            # venv is unreachable inside the jail anyway — drop the marker.
+            env.pop("__PYVENV_LAUNCHER__", None)
         if self._shim_dir:                       # put the `python` shim first on PATH
             env["PATH"] = self._shim_dir + os.pathsep + env.get("PATH", "")
         try:
