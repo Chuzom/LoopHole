@@ -73,15 +73,42 @@ def main(ctx: click.Context) -> None:
         _welcome()
 
 
+def _demo_full(interval: float = 0.9, out=None) -> None:
+    """Full-scale demo: a scripted multi-agent swarm (no LLM), rendered as the live
+    milestone stream and closed with the value scorecard — the whole operating UX
+    in one command."""
+    import tempfile
+    from .serve_demo import seed_and_simulate
+    from .stream import stream_run
+    from .scorecard import render_scorecard, run_scorecard
+    out = out or sys.stdout
+    store = Store(os.path.join(tempfile.mkdtemp(prefix="loophole_demo_"), "d.db"))
+    goals, stop = seed_and_simulate(store, interval=interval)
+    live = goals[2]
+    try:
+        stream_run(store, live, out=out, interval=min(interval, 0.4))  # until DONE
+    except KeyboardInterrupt:
+        pass
+    stop.set()
+    color = out.isatty() if hasattr(out, "isatty") else False
+    out.write(render_scorecard(run_scorecard(store, live), color=color) + "\n")
+    store.close()
+
+
 @main.command()
 @click.option("--slow", is_flag=True, help="Pause between acts for a dramatic pace.")
-def demo(slow: bool) -> None:
+@click.option("--full", is_flag=True,
+              help="Full-scale tour: a live swarm in THE FORGE + scorecard (no LLM/setup).")
+def demo(slow: bool, full: bool) -> None:
     """Run the 30-second 'can't-fake-done' demo — no LLM, fully deterministic.
 
     A naive agent claims done on buggy code; loophole refuses (the verifier fails);
     after the bug is fixed, loophole accepts. The clearest one-command proof of the
-    whole idea.
+    whole idea. Use --full for the live multi-agent swarm (THE FORGE) + scorecard.
     """
+    if full:
+        _demo_full()
+        return
     from .demo import run_demo
     buggy_ok, fixed_ok = run_demo(verbose=True, pause=0.9 if slow else 0.0)
     # exit non-zero only if the invariant is somehow violated (defensive)
@@ -365,8 +392,12 @@ def contract_show(path: str) -> None:
 @click.option("--human", is_flag=True, help="Add a human checkpoint at completion.")
 @click.option("--workspace", default="./loophole-out", help="Directory agents work in.")
 @click.option("--watch/--no-watch", "watch_live", default=None,
-              help="Live-render THE FORGE (the swarm view) during the run. "
-                   "Default: ON in an interactive terminal, OFF when piped/CI.")
+              help="Show the live run view during the run (default ON). "
+                   "--no-watch prints a plain log instead.")
+@click.option("--view", type=click.Choice(["stream", "forge", "log"]), default=None,
+              help="Live view: 'stream' (default) = append-only milestone lines, "
+                   "clean in any terminal, CI, or Claude Desktop; 'forge' = the "
+                   "full-screen animated dashboard (needs a TTY); 'log' = plain log.")
 @click.option("--planner-model", default="chuzom:moderate",
               help="provider:model for planning (default routes via Chuzom; moderate "
                    "tier for reliable plans).")
@@ -398,7 +429,7 @@ def contract_show(path: str) -> None:
 @click.option("--skip-critique", is_flag=True, help="Skip plan critic + verifier adversary.")
 @click.option("--db", default=None, help="State DB path.")
 def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[str],
-        human: bool, workspace: str, watch_live: Optional[bool],
+        human: bool, workspace: str, watch_live: Optional[bool], view: Optional[str],
         planner_model: str, executor_model: str, executor_command: Optional[str],
         executor_name: Optional[str], executor_network: Optional[str],
         executor_secret: Optional[str], critic_model: Optional[str],
@@ -473,24 +504,25 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
                      executor_network=_csv(executor_network),
                      executor_secrets=_csv(executor_secret))
 
-    # Enforce THE FORGE by default: any interactive `loophole run` shows the live
-    # swarm UI. We only fall back to the plain log when output isn't a TTY (piped,
-    # redirected, or CI) — rendering the full-screen ANSI view into a file is useless.
-    interactive = sys.stdout.isatty()
-    want_watch = interactive if watch_live is None else watch_live
-    show_forge = want_watch and interactive
-    if want_watch and not interactive:
-        _say("(THE FORGE needs an interactive terminal; showing the log instead)")
-    if show_forge:
-        # Render THE FORGE live while the loop runs in a background thread; suppress
-        # the per-line log so it doesn't fight the full-screen view.
+    # The default live view is the append-only 'stream' — one clean milestone line
+    # per real event, readable in any terminal, when piped, in CI, or in Claude
+    # Desktop. 'forge' is the full-screen animated dashboard (TTY only); 'log' is a
+    # plain scrolling log. --no-watch selects 'log'.
+    if view is None:
+        view = "stream" if (watch_live is None or watch_live) else "log"
+    if view == "forge" and not sys.stdout.isatty():
+        _say("(the forge dashboard needs an interactive terminal; using the stream view)")
+        view = "stream"
+    _run = lambda log: run_goal(store, goal_id, contract, roles, budget, cfg, log=log)
+    if view == "stream":
+        from .stream import stream_run
+        outcome = stream_run(store, goal_id,
+                             run_callable=lambda: _run(lambda _m: None))
+    elif view == "forge":
         from .watch import watch_during
-        outcome = watch_during(
-            store, goal_id,
-            lambda: run_goal(store, goal_id, contract, roles, budget, cfg,
-                             log=lambda _m: None))
-    else:
-        outcome = run_goal(store, goal_id, contract, roles, budget, cfg, log=_say)
+        outcome = watch_during(store, goal_id, lambda: _run(lambda _m: None))
+    else:  # log
+        outcome = _run(_say)
 
     click.echo()
     click.echo(residual_risk_report(
@@ -549,12 +581,16 @@ def status(goal_id: str, db: Optional[str]) -> None:
 @click.option("--once", is_flag=True, help="Render a single frame and exit.")
 @click.option("--interval", default=1.0, type=float, help="Refresh seconds.")
 @click.option("--demo", is_flag=True, help="Self-driving live demo (no LLM, no real run).")
+@click.option("--view", type=click.Choice(["stream", "forge"]), default="stream",
+              help="'stream' (default) = append-only milestone lines; "
+                   "'forge' = the full-screen animated dashboard.")
 def watch(goal_id: Optional[str], db: Optional[str], once: bool, interval: float,
-          demo: bool) -> None:
-    """Live view of the swarm — THE FORGE: agents, merge-train, and the VERIFY GATE.
+          demo: bool, view: str) -> None:
+    """Follow a run live — the append-only milestone stream (or --view forge for the
+    animated dashboard: agents, merge-train, and the VERIFY GATE).
 
-    `--demo` runs a self-driving swarm so you can watch the terminal UI animate in any
-    terminal (Claude Code, Cursor, Codex) without an LLM or a real run.
+    `--demo` runs a self-driving swarm so you can watch the UI without an LLM or a
+    real run.
     """
     if demo:
         import tempfile
@@ -562,7 +598,7 @@ def watch(goal_id: Optional[str], db: Optional[str], once: bool, interval: float
         from .serve_demo import seed_and_simulate
         goals, _stop = seed_and_simulate(store, interval=1.4)
         goal_id = goals[2]                       # the live, animating run
-        interval = min(interval, 0.3)            # smoother animation for the demo
+        interval = min(interval, 0.3)
     else:
         store = Store(db or _default_db())
         if not goal_id:
@@ -572,7 +608,11 @@ def watch(goal_id: Optional[str], db: Optional[str], once: bool, interval: float
             store.close()
             raise click.ClickException("no such goal: " + goal_id)
     try:
-        run_watch(store, goal_id, interval=interval, once=once)
+        if view == "stream" and not once:
+            from .stream import stream_run
+            stream_run(store, goal_id, interval=min(interval, 0.4))
+        else:
+            run_watch(store, goal_id, interval=interval, once=once)
     except KeyboardInterrupt:
         click.echo("")
     finally:
@@ -696,6 +736,16 @@ def resume(goal_id: str, executor_model: str, planner_model: str, db: Optional[s
                                     outcome.verifier_bypasses, detail=outcome.detail))
     store.close()
     sys.exit(0 if outcome.status == "done" else 1)
+
+
+@main.command()
+def mcp() -> None:
+    """Run loophole as an MCP server (stdio) — use it from Claude Code / Claude
+    Desktop / any MCP client. Describe a goal, run it, and watch progress inside
+    the session. Register with:  claude mcp add loophole -- loophole mcp
+    """
+    from .mcp_server import serve
+    serve()
 
 
 if __name__ == "__main__":
