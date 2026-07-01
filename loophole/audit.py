@@ -29,6 +29,7 @@ _GLYPH = {
     "executor_network": "⇄",
     "executor_network_denied": "⛔",
     "auto_protect": "🛡",
+    "routing_feedback": "📊",
 }
 
 

@@ -322,6 +322,15 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
     # Work on a private copy so loop-local tweaks (e.g. forcing max_parallel=1 in
     # shared-workspace mode) never mutate the caller's LoopConfig.
     cfg = replace(cfg)
+    # Record role model labels for the routing-quality feedback record BEFORE
+    # wrapping providers in the charging proxy (read the real providers). The
+    # executor label is the framework adapter name when one is set, else the
+    # executor model. Stored as an event so _finish can emit the feedback record
+    # without threading labels through every terminal return.
+    from .feedback import _provider_label
+    store.log("roles", goal_id=goal_id,
+              payload={"planner": _provider_label(roles.planner),
+                       "executor": cfg.executor_name or _provider_label(roles.executor)})
     # Charge planner/critic (and downgrade-target) calls to the budget — the
     # executor path charges itself from ExecResult, so it stays unwrapped.
     from .provider import ChargingProvider
@@ -756,11 +765,36 @@ def _finish(store: Store, goal_id: str, status: str, rounds: int,
             if t.status in ("pending", "ready"):
                 store.set_task_status(t.id, "superseded", goal_id)
     store.set_goal_status(goal_id, status, detail=detail)
+    _emit_routing_feedback(store, goal_id, status, rounds, budget, say)
     integ = Integration(store.get_goal(goal_id)["workspace"])
     integ.cleanup_worktrees()
     say("goal {} -> {} ({})".format(goal_id, status, detail))
     return LoopOutcome(status=status, rounds=rounds, verdict=verdict, budget=budget,
                        verifier_bypasses=bypasses, detail=detail)
+
+
+def _emit_routing_feedback(store: Store, goal_id: str, status: str, rounds: int,
+                           budget: Budget, say: Callable[[str], None]) -> None:
+    """Send Chuzom the ground-truth routing-quality record for this run.
+
+    Best-effort: the verifier's verdict is the signal Chuzom can't get any
+    other way. Never let a feedback hiccup affect the run's outcome."""
+    try:
+        from . import feedback
+        roles_evs = [e for e in store.events(goal_id) if e["kind"] == "roles"]
+        labels = json.loads(roles_evs[-1]["payload"]) if roles_evs else {}
+        rec = feedback.build_record(
+            store, goal_id, status, rounds, budget,
+            planner_label=labels.get("planner", "unknown"),
+            executor_label=labels.get("executor", "unknown"),
+            ts=time.time())
+        sink = feedback.emit(rec)
+        if sink != "none":
+            store.log("routing_feedback", goal_id=goal_id,
+                      payload={"sink": sink, "verified_done": rec["verified_done"],
+                               "executor_model": rec["executor_model"]})
+    except Exception as e:                        # feedback must never break a run
+        say("routing feedback skipped: {}".format(e))
 
 
 def _safe(task_id: str) -> str:
