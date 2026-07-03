@@ -47,6 +47,85 @@ def _walk_has(repo: str, predicate, skip=(".git", "node_modules", "__pycache__",
     return False
 
 
+# Command PREFIXES that look like a real test invocation, checked against each
+# candidate line extracted from a workflow's `run:` step — the same ecosystems
+# detect_test_command() covers below, so a CI-sourced and a heuristic-inferred
+# verifier never disagree about what "test" means for this repo.
+_CI_TEST_CMD_RE = re.compile(
+    r"^(?:python3?\s+-m\s+)?pytest\b.*$"
+    r"|^tox\b.*$"
+    r"|^(?:npm|yarn|pnpm)\s+(?:run\s+)?test\b.*$"
+    r"|^go\s+test\b.*$"
+    r"|^cargo\s+test\b.*$"
+    r"|^make\s+test\b.*$"
+)
+
+
+def _workflow_run_lines(text: str):
+    """Yield candidate shell command lines from a GH Actions workflow's `run:`
+    steps — single-line ``run: cmd`` and block-scalar ``run: |``/``run: >``
+    bodies. A lightweight line/indentation scan, not a full YAML parse:
+    loophole has no YAML runtime dependency (core deps are just click — see
+    pyproject.toml) and doesn't need one here, since workflow `run:` steps are
+    simple enough that indentation tracking is reliable without a real parser.
+    """
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        # tolerate the YAML sequence marker: `- run: cmd` is exactly as common
+        # as a bare `run:` under a sibling `- name:` key one line up.
+        m = re.match(r"(?:-\s+)?run:\s*(.*)$", stripped)
+        if m:
+            rest = m.group(1).strip()
+            if rest in ("|", ">", "|-", ">-", "|+", ">+"):
+                # block scalar: following more-indented lines are the body
+                j = i + 1
+                while j < len(lines):
+                    body = lines[j]
+                    if body.strip():
+                        body_indent = len(body) - len(body.lstrip())
+                        if body_indent <= indent:
+                            break
+                        yield body.strip()
+                    j += 1
+                i = j
+                continue
+            elif rest:
+                # inline value: may itself have shell `&&`-chained commands
+                for part in rest.split("&&"):
+                    yield part.strip()
+        i += 1
+
+
+def detect_ci_test_command(repo: str, notes: List[str]) -> Optional[str]:
+    """Extract the repo's REAL test command from its GitHub Actions workflows
+    (ground truth) instead of guessing from file heuristics. Returns the
+    first line, across workflow files in sorted order, that looks like a
+    known test-runner invocation — or None if there's no workflow, or none
+    of its `run:` steps look like a test command (e.g. a Java/Gradle repo,
+    or one that shells into a subdirectory before invoking a runner this
+    doesn't recognize)."""
+    wf_dir = os.path.join(repo, ".github", "workflows")
+    if not os.path.isdir(wf_dir):
+        return None
+    try:
+        files = sorted(f for f in os.listdir(wf_dir) if f.endswith((".yml", ".yaml")))
+    except OSError:
+        return None
+    for fname in files:
+        text = _read(repo, ".github", "workflows", fname)
+        for cmd in _workflow_run_lines(text):
+            if _CI_TEST_CMD_RE.match(cmd):
+                notes.append(
+                    "detected CI test command in .github/workflows/{} -> '{}'"
+                    .format(fname, cmd))
+                return cmd
+    return None
+
+
 def detect_test_command(repo: str, notes: List[str]) -> Optional[str]:
     """Best-effort test-runner detection -> a hard verifier command, or None."""
     pyproject = _read(repo, "pyproject.toml")
@@ -122,11 +201,18 @@ def detect_allowed_writes(repo: str, notes: List[str]) -> List[str]:
     return allowed
 
 
-def detect_contract(repo: str) -> Tuple[GoalContract, List[str]]:
-    """Inspect ``repo`` and return a starter contract plus human-readable notes."""
+def detect_contract(repo: str, from_ci: bool = False) -> Tuple[GoalContract, List[str]]:
+    """Inspect ``repo`` and return a starter contract plus human-readable notes.
+
+    ``from_ci``: prefer the repo's REAL test command, extracted from its
+    GitHub Actions workflows, over the file-presence heuristic below — ground
+    truth beats a guess when it's available. Falls back to the heuristic when
+    no workflow exists or none of its steps look like a test command, so
+    passing --from-ci never produces a WORSE contract than the default.
+    """
     notes: List[str] = []
     verifiers: List[Verifier] = []
-    cmd = detect_test_command(repo, notes)
+    cmd = (from_ci and detect_ci_test_command(repo, notes)) or detect_test_command(repo, notes)
     if cmd:
         verifiers.append(Verifier(kind=VerifierKind.HARD, command=cmd,
                                   expected_test_delta=0))

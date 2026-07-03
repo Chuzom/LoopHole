@@ -137,8 +137,13 @@ def demo(slow: bool, full: bool) -> None:
               help="Set the goal now (skips the TODO placeholder / interactive prompt).")
 @click.option("--ci", "ci", type=click.Choice(["github-actions", "gitlab"]), default=None,
               help="Also write a CI acceptance-gate workflow for this provider.")
+@click.option("--from-ci", "from_ci", is_flag=True,
+              help="Infer the verifier from the repo's OWN GitHub Actions workflows "
+                   "(ground truth — the real CI command) instead of guessing from "
+                   "file presence. Falls back to the usual heuristic if no workflow "
+                   "is found or none of its steps look like a test command.")
 def init(repo: str, force: bool, template: Optional[str], list_templates: bool,
-         goal: Optional[str], ci: Optional[str]) -> None:
+         goal: Optional[str], ci: Optional[str], from_ci: bool) -> None:
     """Infer a starter contract (loophole.json) from the repo, or scaffold a template.
 
     Inspects the filesystem only — no code execution, no model calls. Pass --goal to
@@ -162,7 +167,7 @@ def init(repo: str, force: bool, template: Optional[str], list_templates: bool,
             f.write(raw if raw.endswith("\n") else raw + "\n")
         _say("scaffolded from template '{}'".format(template))
     else:
-        contract, notes = detect_contract(repo)
+        contract, notes = detect_contract(repo, from_ci=from_ci)
         write_starter(contract, out)
         for n in notes:
             _say(n)

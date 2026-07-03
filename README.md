@@ -155,6 +155,7 @@ Because the verifier *is* the goalpost, loophole defends it:
 ```bash
 loophole init                                   # infer a starter loophole.json from the repo
 loophole init --template refactor-frozen-tests  # or scaffold from a template
+loophole init --from-ci                         # infer the verifier from your OWN CI workflow (ground truth), not a file guess
 loophole run                                    # auto-loads ./loophole.json
 loophole run "<goal>" --verify "pytest -q" [--workspace DIR]
 loophole run --contract loophole.json --executor-command 'claude -p {task}'  # BYO agent
