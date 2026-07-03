@@ -42,7 +42,7 @@ Issues = "https://github.com/Chuzom/loophole/issues"
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40"]
 openai = ["openai>=1.0"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "jsonschema>=4.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "jsonschema>=4.0", "pyyaml>=6.0"]
 
 [project.scripts]
 loophole = "loophole.cli:main"

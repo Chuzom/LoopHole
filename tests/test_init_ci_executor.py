@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 
+import pytest
 from click.testing import CliRunner
 
 from loophole.cli import main
@@ -35,7 +36,7 @@ def test_init_ci_github_actions_writes_workflow():
         # not the raw pip recipe
         assert "uses: Chuzom/loophole@v1" in body
         assert "contract: loophole.json" in body
-        import yaml
+        yaml = pytest.importorskip("yaml")
         parsed = yaml.safe_load(body)
         assert parsed[True] == ["pull_request"]   # PyYAML 1.1 coerces bare `on:` -> True
         assert parsed["jobs"]["acceptance"]["steps"][-1]["uses"] == "Chuzom/loophole@v1"
