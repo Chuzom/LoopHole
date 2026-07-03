@@ -190,7 +190,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: {{ python-version: "3.11" }}
       - run: sudo apt-get update && sudo apt-get install -y bubblewrap
-      - run: pip install loophole
+      - run: pip install loophole-agents
       - run: loophole contract validate loophole.json
       - run: loophole run --contract loophole.json --workspace .
 """),
@@ -199,7 +199,7 @@ loophole-gate:
   image: python:3.11
   script:
     - apt-get update && apt-get install -y bubblewrap
-    - pip install loophole
+    - pip install loophole-agents
     - loophole contract validate loophole.json
     - loophole run --contract loophole.json --workspace .
   rules:

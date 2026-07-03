@@ -29,7 +29,7 @@ jobs:
 
       # loophole sandboxes shell commands; bubblewrap is the Linux backend.
       - run: sudo apt-get update && sudo apt-get install -y bubblewrap
-      - run: pip install loophole
+      - run: pip install loophole-agents
 
       # Validate the committed contract, then run it against this PR's code.
       # Bring-your-own-executor: point --executor-command at whatever agent you use,
