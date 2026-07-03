@@ -35,3 +35,19 @@ def test_readme_has_no_links_into_gitignored_docs():
     rm = _read("README.md")
     assert "docs/" not in rm, "README links into gitignored docs/ — move the asset to assets/"
     assert os.path.exists(os.path.join(ROOT, "assets", "loophole-flow.svg"))
+
+
+def test_compatibility_matrix_stays_in_sync_with_registered_executors():
+    """ROADMAP E2.2: every registered framework adapter (`loophole executor list`)
+    must have a row in the README's Compatibility matrix — this fails loudly if a
+    new adapter ships without a docs update."""
+    from loophole import executors as ex
+    ex.load_executors()
+    rm = _read("README.md")
+    start = rm.index("#### Compatibility matrix")
+    end = rm.index("**Deliberately out of scope", start)
+    table = rm[start:end]
+    for name in ex.registered_executors():
+        assert "`{}`".format(name) in table, \
+            "executor '{}' is registered but missing from the README compatibility " \
+            "matrix (loophole executor list)".format(name)

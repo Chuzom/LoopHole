@@ -222,14 +222,39 @@ That's the bet: as models commoditize, *who wrote the code* matters less than
 
 ### Swarm on top of any agent framework
 
-Each swarm worker can be a **full agent framework** — Claude Code, Agno, a Hermes
-harness, your own — running in its own git worktree while loophole stays the
-orchestrator + trust layer. Claude Code is built in:
+Each swarm worker can be a **full agent framework** — Claude Code, Codex CLI, aider,
+your own — running in its own git worktree while loophole stays the orchestrator +
+trust layer. Three are built in:
 
 ```bash
 loophole run "<goal>" --executor claude-code   # runs `claude -p` per task, streams its
                                                # tool calls into the FORGE (agent_step)
+loophole run "<goal>" --executor codex         # runs `codex exec` per task, streams too
+loophole run "<goal>" --executor aider         # runs `aider --message` per task
 ```
+
+#### Compatibility matrix
+
+| Executor | Streams steps into the live view | Network (default) | Sandboxed by default | Status |
+|---|---|---|---|---|
+| `claude-code` | ✅ (stream-json → `agent_step`) | `api.anthropic.com` | ❌ trusted (subscription keychain auth) | Verified |
+| `codex` | ✅ (JSONL `item.completed` → `agent_step`) | `api.openai.com`, `chatgpt.com`, `auth.openai.com` | ❌ trusted (ChatGPT-subscription credentials under `~/.codex/`) | Verified live against codex-cli 0.80.0 |
+| `aider` | ❌ (plain text/markdown output, no event stream) | `api.openai.com` | ✅ sandboxed (no credential store to protect) | Flags verified against the real binary (0.82.3); no live LLM run possible in this environment |
+
+`claude-code`/`codex` default **trusted** (unsandboxed) because both need to read a
+stored subscription credential outside the worktree — the same trade-off, made for
+the same reason. `aider` needs only an API key passed through `--executor-secret`, so
+it stays fully OS-sandboxed with no downside. Every executor, trusted or not, still
+sits behind the write-allowlist, merge gate, and verifier — **no adapter can grant
+"done."**
+
+**Deliberately out of scope for now:** Devin (API/web-first product, no public
+headless CLI to verify against) and Cursor/Composer (IDE-integrated, no stable public
+headless invocation). OpenHands was investigated and skipped too — it has no simple,
+verifiable pip-installable CLI (`pip install openhands` resolves to an unrelated
+placeholder package). All three remain usable today via the generic
+`--executor-command` escape hatch once you have them installed by whatever means
+their project documents.
 
 > **Trust exception:** the built-in `claude-code` adapter defaults to **trusted** — it
 > runs *outside* the OS sandbox so it can reach your subscription login (macOS
