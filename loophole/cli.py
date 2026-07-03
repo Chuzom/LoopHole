@@ -194,17 +194,20 @@ _CI_WORKFLOWS = {
     "github-actions": (".github/workflows/loophole-gate.yml", """\
 name: loophole-gate
 on: [pull_request]
+# pull-requests/checks write are only needed if you enable `comment: true`
+# below (a sticky PR comment + an annotated Check Run with the verdict).
+permissions:
+  pull-requests: write
+  checks: write
 jobs:
   acceptance:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {{ python-version: "3.11" }}
-      - run: sudo apt-get update && sudo apt-get install -y bubblewrap
-      - run: pip install loophole-agents
-      - run: loophole contract validate loophole.json
-      - run: loophole run --contract loophole.json --workspace .
+      - uses: Chuzom/loophole@v1
+        with:
+          contract: loophole.json
+          comment: true
 """),
     "gitlab": (".gitlab-ci.yml", """\
 loophole-gate:

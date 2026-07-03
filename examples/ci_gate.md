@@ -11,7 +11,32 @@ audit trail. The agent grades nothing; the contract does.
 3. The job passes only if the verifier boundary passes. The run's audit trail
    (`loophole audit`) is the reviewable record.
 
-## A minimal GitHub Actions gate
+## The easy way: the GitHub Action
+
+`loophole init --ci github-actions` scaffolds this (or write it yourself):
+
+```yaml
+# .github/workflows/loophole-gate.yml
+name: loophole-gate
+on: [pull_request]
+permissions:
+  pull-requests: write   # only needed for `comment: true`
+  checks: write
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Chuzom/loophole@v1
+        with:
+          contract: loophole.json
+          comment: true   # sticky PR comment + an annotated Check Run
+```
+
+See [`action.yml`](../action.yml) for every input (BYO executor, model overrides,
+`fail-on: never` for report-only mode).
+
+## The manual way (no Action — pin every step yourself)
 
 `.github/workflows/loophole-gate.yml`:
 
