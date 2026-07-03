@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Chuzom/loophole/loophole/schemas/run_result.schema.json",
+  "title": "loophole run result",
+  "description": "Stable machine-readable output of `loophole run --json` / `loophole resume --json`. Consumed by the GitHub Action and PR-comment tooling — treat as a CI contract; additive changes only bump schema_version on breaking change.",
+  "type": "object",
+  "required": [
+    "schema_version", "goal_id", "goal", "status", "exit_code", "verified_done",
+    "rounds", "verified", "not_proven", "boundary_events", "cheats_blocked",
+    "verifier_rejections", "verifier_bypasses", "budget", "duration_s",
+    "residual_risk_text"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "goal_id": { "type": "string" },
+    "goal": { "type": "string" },
+    "status": { "type": "string", "enum": ["done", "paused", "failed"] },
+    "exit_code": { "type": "integer", "enum": [0, 1] },
+    "verified_done": { "type": "boolean" },
+    "detail": { "type": "string" },
+    "rounds": { "type": "integer", "minimum": 0 },
+    "verified": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "passed", "abstained"],
+        "properties": {
+          "name": { "type": "string" },
+          "passed": { "type": "boolean" },
+          "abstained": { "type": "boolean" },
+          "metrics": { "type": "object" },
+          "failures": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "not_proven": { "type": "array", "items": { "type": "string" } },
+    "boundary_events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "ts", "detail"],
+        "properties": {
+          "kind": { "type": "string" },
+          "ts": { "type": "number" },
+          "task_id": { "type": ["string", "null"] },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "cheats_blocked": { "type": "integer", "minimum": 0 },
+    "verifier_rejections": { "type": "integer", "minimum": 0 },
+    "verifier_bypasses": { "type": "array", "items": { "type": "string" } },
+    "budget": {
+      "type": "object",
+      "required": ["usd", "tokens"],
+      "properties": {
+        "usd": { "type": "number", "minimum": 0 },
+        "tokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "duration_s": { "type": "number", "minimum": 0 },
+    "residual_risk_text": { "type": "string" }
+  }
+}

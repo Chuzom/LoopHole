@@ -42,7 +42,7 @@ Issues = "https://github.com/Chuzom/loophole/issues"
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40"]
 openai = ["openai>=1.0"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "jsonschema>=4.0"]
 
 [project.scripts]
 loophole = "loophole.cli:main"
@@ -52,7 +52,7 @@ where = ["."]
 include = ["loophole*"]
 
 [tool.setuptools.package-data]
-loophole = ["templates/*.json"]
+loophole = ["templates/*.json", "schemas/*.json"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

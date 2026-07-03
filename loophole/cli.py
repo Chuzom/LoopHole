@@ -410,6 +410,13 @@ def contract_show(path: str) -> None:
               help="Live view: 'stream' (default) = append-only milestone lines, "
                    "clean in any terminal, CI, or Claude Desktop; 'forge' = the "
                    "full-screen animated dashboard (needs a TTY); 'log' = plain log.")
+@click.option("--json", "emit_json", is_flag=True,
+              help="Print the machine-readable run result (see "
+                   "loophole/schemas/run_result.schema.json) to stdout after the "
+                   "human report. For CI/tooling — the Action and PR-comment "
+                   "mode consume this.")
+@click.option("--json-file", "json_file", default=None,
+              help="Also write the --json result to this path.")
 @click.option("--planner-model", default="chuzom:moderate",
               help="provider:model for planning (default routes via Chuzom; moderate "
                    "tier for reliable plans).")
@@ -449,6 +456,7 @@ def contract_show(path: str) -> None:
 @click.option("--db", default=None, help="State DB path.")
 def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[str],
         human: bool, workspace: str, watch_live: Optional[bool], view: Optional[str],
+        emit_json: bool, json_file: Optional[str],
         planner_model: str, executor_model: str, executor_command: Optional[str],
         executor_name: Optional[str], executor_network: Optional[str],
         executor_secret: Optional[str], executor_sandboxed: bool,
@@ -553,6 +561,16 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
     click.echo()
     click.echo(render_scorecard(run_scorecard(store, goal_id),
                                 color=sys.stdout.isatty()))
+    if emit_json or json_file:
+        from .report import to_json
+        result = to_json(contract, outcome, store, goal_id)
+        if emit_json:
+            click.echo()
+            click.echo(json.dumps(result, indent=2))
+        if json_file:
+            with open(json_file, "w", encoding="utf-8") as f:
+                json.dump(result, f, indent=2)
+                f.write("\n")
     store.close()
     sys.exit(0 if outcome.status == "done" else 1)
 
@@ -737,8 +755,13 @@ def ls(ctx: click.Context, db: Optional[str]) -> None:
 @click.argument("goal_id")
 @click.option("--executor-model", default="chuzom:complex")
 @click.option("--planner-model", default="chuzom:moderate")
+@click.option("--json", "emit_json", is_flag=True,
+              help="Print the machine-readable run result after the human report.")
+@click.option("--json-file", "json_file", default=None,
+              help="Also write the --json result to this path.")
 @click.option("--db", default=None)
-def resume(goal_id: str, executor_model: str, planner_model: str, db: Optional[str]) -> None:
+def resume(goal_id: str, executor_model: str, planner_model: str,
+          emit_json: bool, json_file: Optional[str], db: Optional[str]) -> None:
     """Resume a paused/failed goal (discards un-merged worktrees, re-runs pending)."""
     store = Store(db or _default_db())
     g = store.get_goal(goal_id)
@@ -759,6 +782,16 @@ def resume(goal_id: str, executor_model: str, planner_model: str, db: Optional[s
     click.echo(residual_risk_report(contract, outcome.verdict, outcome.status,
                                     outcome.rounds, outcome.budget.summary(),
                                     outcome.verifier_bypasses, detail=outcome.detail))
+    if emit_json or json_file:
+        from .report import to_json
+        result = to_json(contract, outcome, store, goal_id)
+        if emit_json:
+            click.echo()
+            click.echo(json.dumps(result, indent=2))
+        if json_file:
+            with open(json_file, "w", encoding="utf-8") as f:
+                json.dump(result, f, indent=2)
+                f.write("\n")
     store.close()
     sys.exit(0 if outcome.status == "done" else 1)
 

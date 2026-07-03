@@ -166,6 +166,7 @@ loophole run --contract team-default              # run a registry spec by name
 loophole run "<goal>"                            # live STREAM view by DEFAULT (append-only)
 loophole run "<goal>" --view forge               # THE FORGE full-screen dashboard (TTY only)
 loophole run "<goal>" --no-watch                 # plain log (CI / when piping)
+loophole run "<goal>" --json --json-file out.json   # machine-readable result (CI/tooling)
 # models route via Chuzom by DEFAULT (planner=chuzom:simple, executor=chuzom:complex);
 # set CHUZOM_URL to route through a live `chuzom-route` server, else local tier policy.
 loophole run "<goal>" --executor-model ollama:qwen3-coder:30b   # or pin a model directly
