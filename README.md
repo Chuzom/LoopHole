@@ -279,11 +279,13 @@ audited by a multi-model council; we publish our own findings.
 - [x] **Enforced scoped egress** (localhost jail + host-allowlisted proxy) on macOS
 - [x] History-grounded `loophole estimate` · goal finish-reasons surfaced in `status`/`audit`
 
-**Next** — the acceptance-layer bet (*"CI for AI agents," bring-your-own-executor*):
+**Next** — the acceptance-layer bet (*"CI for AI agents," bring-your-own-executor*). The
+detailed, sequenced execution plan lives in **[`ROADMAP.md`](ROADMAP.md)**; the headline bets:
 
+- [ ] **Get into the PR** — a GitHub Action + native PR check & comment (the adoption unlock)
+- [ ] First-class executor adapters for frontier coding agents (Cursor, Codex, aider, OpenHands, Devin)
+- [ ] Contract inference from existing CI + a public contract/verifier registry
 - [ ] Hosted control-plane (run history, audit, policy, fleet dashboards)
-- [ ] First-class executor adapters for frontier coding agents
-- [ ] Richer verifier adapters (coverage, mutation testing)
 - [ ] bubblewrap netns egress scoping (Linux parity with the macOS proxy)
 
 ## Contributing
