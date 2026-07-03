@@ -43,7 +43,11 @@
           "kind": { "type": "string" },
           "ts": { "type": "number" },
           "task_id": { "type": ["string", "null"] },
-          "detail": { "type": "string" }
+          "detail": { "type": "string" },
+          "payload": {
+            "type": "object",
+            "description": "The raw event payload (shape varies by kind) — for tooling that needs more than the rendered detail string, e.g. building precise Check-Run annotations from write_glob_violation's violations[]."
+          }
         }
       }
     },

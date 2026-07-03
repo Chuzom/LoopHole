@@ -167,6 +167,7 @@ loophole run "<goal>"                            # live STREAM view by DEFAULT (
 loophole run "<goal>" --view forge               # THE FORGE full-screen dashboard (TTY only)
 loophole run "<goal>" --no-watch                 # plain log (CI / when piping)
 loophole run "<goal>" --json --json-file out.json   # machine-readable result (CI/tooling)
+loophole run --contract loophole.json --comment      # sticky PR comment + Check Run (needs GITHUB_TOKEN, in a pull_request job)
 # models route via Chuzom by DEFAULT (planner=chuzom:simple, executor=chuzom:complex);
 # set CHUZOM_URL to route through a live `chuzom-route` server, else local tier policy.
 loophole run "<goal>" --executor-model ollama:qwen3-coder:30b   # or pin a model directly
@@ -263,6 +264,9 @@ on neutral ground, with a reviewable audit trail:
 ```yaml
 # .github/workflows/loophole-gate.yml
 on: [pull_request]
+permissions:
+  pull-requests: write   # only needed for `comment: true`
+  checks: write           # only needed for `comment: true`
 jobs:
   acceptance:
     runs-on: ubuntu-latest
@@ -271,6 +275,7 @@ jobs:
       - uses: Chuzom/loophole@v1     # runs loophole against loophole.json
         with:
           contract: loophole.json    # or: goal + verify for an ad-hoc check
+          comment: true               # sticky PR comment + a Check Run, annotated
 ```
 
 - **`loophole.json` is acceptance-spec-as-code** — committed, reviewed, reusable.
@@ -279,6 +284,10 @@ jobs:
 - **`loophole audit <run>`** renders every boundary decision (merge-gate rejections,
   write-allowlist violations, soft-judge escalations) with its reason — trust the
   result without reading every diff. `loophole runs` lists past runs.
+- **`--comment`** (or `comment: true` on the Action) posts a single self-updating PR
+  comment with the Residual-Risk Report, plus a Check Run whose conclusion mirrors
+  the verifier's verdict — annotated with any file an agent tried to write outside
+  its allowlist. Needs `GITHUB_TOKEN` and runs only in a `pull_request` job.
 - The Action exposes `status` / `verified-done` / `exit-code` / `result-json` as
   step outputs, and writes a step summary with the Residual-Risk Report — see
   **[`action.yml`](action.yml)** for all inputs (BYO executor, model overrides,

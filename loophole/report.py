@@ -172,6 +172,7 @@ def to_json(contract: GoalContract, outcome: Any, store: Any, goal_id: str) -> D
             "ts": e["ts"] if "ts" in e.keys() else 0.0,
             "task_id": e["task_id"] if "task_id" in e.keys() else None,
             "detail": _summary(e["kind"], p),
+            "payload": p,
         })
 
     return {

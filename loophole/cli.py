@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import click
 
@@ -453,6 +453,11 @@ def contract_show(path: str) -> None:
 @click.option("--expect-test-delta", default=None, type=int,
               help="Min test-count change vs baseline (anti reward-hacking).")
 @click.option("--skip-critique", is_flag=True, help="Skip plan critic + verifier adversary.")
+@click.option("--comment", is_flag=True,
+              help="Post/update a sticky PR comment with the Residual-Risk Report and "
+                   "create a Check Run (annotated with any write-allowlist violations). "
+                   "Requires running inside a GitHub Actions pull_request job with "
+                   "GITHUB_TOKEN set (checks:write, pull-requests:write permissions).")
 @click.option("--db", default=None, help="State DB path.")
 def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[str],
         human: bool, workspace: str, watch_live: Optional[bool], view: Optional[str],
@@ -463,7 +468,8 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
         critic_model: Optional[str],
         cheap_model: Optional[str], max_parallel: int, max_rounds: int,
         max_cost: float, max_tokens: int, protect: tuple,
-        expect_test_delta: Optional[int], skip_critique: bool, db: Optional[str]) -> None:
+        expect_test_delta: Optional[int], skip_critique: bool, comment: bool,
+        db: Optional[str]) -> None:
     """Run a goal until its acceptance contract passes.
 
     Provide a GOAL with flags, or load a contract file with --contract. With no
@@ -517,6 +523,19 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
     except ProviderError as e:
         raise UsageError(str(e))
 
+    gh_ctx = None
+    if comment:
+        from .gh import pr_context
+        token = os.environ.get("GITHUB_TOKEN")
+        if not token:
+            raise UsageError("--comment requires GITHUB_TOKEN in the environment "
+                             "(the default token in a GitHub Actions job works).")
+        gh_ctx = pr_context()
+        if gh_ctx is None:
+            raise UsageError("--comment must run inside a GitHub Actions "
+                             "pull_request-triggered job (GITHUB_REPOSITORY / "
+                             "GITHUB_EVENT_PATH not found or not a pull_request event).")
+
     workspace = os.path.realpath(workspace)
     os.makedirs(workspace, exist_ok=True)
     store = Store(db or _default_db())
@@ -561,7 +580,7 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
     click.echo()
     click.echo(render_scorecard(run_scorecard(store, goal_id),
                                 color=sys.stdout.isatty()))
-    if emit_json or json_file:
+    if emit_json or json_file or comment:
         from .report import to_json
         result = to_json(contract, outcome, store, goal_id)
         if emit_json:
@@ -571,8 +590,42 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
             with open(json_file, "w", encoding="utf-8") as f:
                 json.dump(result, f, indent=2)
                 f.write("\n")
+        if comment:
+            _post_pr_feedback(gh_ctx, result, _say)
     store.close()
     sys.exit(0 if outcome.status == "done" else 1)
+
+
+def _post_pr_feedback(gh_ctx: dict, result: dict, say: Callable[[str], None]) -> None:
+    """Post the sticky PR comment + Check Run. Best-effort AFTER the run has
+    already completed: a network/API failure here must never change the run's
+    own exit code — it only means the trust artifact didn't make it to GitHub."""
+    from .gh import (GhError, annotations_from_boundary_events, create_check_run,
+                     find_leaked_secrets, render_comment_body, upsert_pr_comment)
+    token = os.environ["GITHUB_TOKEN"]     # presence already verified pre-run
+    body = render_comment_body(result)
+    leaked = find_leaked_secrets(body) or find_leaked_secrets(json.dumps(result))
+    if leaked:
+        say("--comment: refusing to post — output looks like it contains a "
+            "secret value ({}). This should never happen (verifiers run with "
+            "secrets scrubbed); investigate before re-running.".format(", ".join(leaked)))
+        return
+    try:
+        upsert_pr_comment(gh_ctx["repo"], gh_ctx["pr_number"], token, body)
+        say("posted PR comment on #{}".format(gh_ctx["pr_number"]))
+    except GhError as e:
+        say("--comment: could not post PR comment ({})".format(e))
+    try:
+        annotations = annotations_from_boundary_events(result.get("boundary_events", []))
+        create_check_run(
+            gh_ctx["repo"], gh_ctx["sha"], token, name="loophole / acceptance",
+            conclusion="success" if result.get("verified_done") else "failure",
+            title="{} — {}".format(result.get("status", "unknown").upper(),
+                                   result.get("goal", "")[:80]),
+            summary=result.get("residual_risk_text", ""), annotations=annotations)
+        say("posted Check Run for {}".format(gh_ctx["sha"][:12]))
+    except GhError as e:
+        say("--comment: could not create Check Run ({})".format(e))
 
 
 def _human_checkpoint(prompt: str) -> bool:
