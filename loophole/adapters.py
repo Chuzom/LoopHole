@@ -185,7 +185,64 @@ class CodexExecutor(Executor):
         return ExecResult(ok=res.ok, summary=summary, steps=len(steps) or 1)
 
 
+class AiderExecutor(Executor):
+    """Run the aider CLI (`aider --message`) as each swarm worker.
+
+    UNVERIFIED end-to-end: `--help` output and every flag below were confirmed
+    against the real aider 0.82.3 binary (no fabricated flags), but no live task
+    completion was observed — this environment has no API key aider can use.
+    `--executor-command` is the documented escape hatch if flags drift on your
+    aider version.
+
+    `--no-auto-commits` is REQUIRED, not cosmetic: aider commits its own changes
+    by default. loophole's own commit_worktree() detects a task's changes via
+    `git diff --cached` on the WORKTREE at completion time (integration.py) — if
+    aider already committed everything itself, the worktree is clean by then and
+    a genuinely successful task would be misreported as "made no file changes"
+    and FAIL. loophole, not the executor, owns commits — every adapter operates
+    inside that same boundary.
+    """
+
+    DEFAULT_CMD = ("aider --message {task} --yes-always --no-auto-commits "
+                   "--no-check-update --no-analytics --no-gitignore "
+                   "--no-stream --no-pretty")
+
+    def __init__(self, config: Optional[dict] = None):
+        config = config or {}
+        self.command = config.get("command") or self.DEFAULT_CMD
+        self.shell_timeout = int(config.get("shell_timeout") or 600)
+        # aider is model-agnostic (LiteLLM under the hood) and reads its key from
+        # a provider-specific env var. Default to OpenAI's — aider's own default
+        # provider — override via executor config for Anthropic/etc.
+        self.network_hosts = tuple(config.get("network_hosts") or ()) or ("api.openai.com",)
+        self.pass_env = tuple(config.get("pass_env") or ()) or ("OPENAI_API_KEY",)
+        # Unlike Claude Code/Codex, aider has no subscription-login credential
+        # STORE to protect (no file outside the worktree it needs to read) — an
+        # API key passed through via pass_env is all it needs. So it stays
+        # confined by loophole's OS sandbox by DEFAULT (untrusted=safer here).
+        # Opt in via executor config {"trusted": True} if your setup needs it.
+        self.trusted = bool(config.get("trusted", False))
+
+    def run(self, task, worktree: str, ctx: Optional[ExecContext] = None) -> ExecResult:
+        belt = Toolbelt(worktree, timeout=self.shell_timeout,
+                        network_hosts=self.network_hosts, pass_env=self.pass_env,
+                        trusted=self.trusted)
+        cmd = self.command.replace("{task}", shlex.quote(task.description))
+        if ctx is not None:
+            ctx.step("aider", "start")
+        res = belt.run_shell(cmd)
+        # aider prints plain markdown/text, not a JSON event stream — no
+        # step-by-step parsing is possible here (a known limitation vs
+        # claude-code/codex, which stream structured tool-call events).
+        summary = (res.output or "").strip()[-300:] or (
+            "aider ok" if res.ok else "aider failed")
+        from .executor import _log_network_denials
+        _log_network_denials(belt, ctx)
+        return ExecResult(ok=res.ok, summary=summary, steps=1)
+
+
 def register(api) -> None:
     """Register the built-in framework adapters (called by executors.load_executors)."""
     api.register_executor("claude-code", lambda cfg: ClaudeCodeExecutor(cfg))
     api.register_executor("codex", lambda cfg: CodexExecutor(cfg))
+    api.register_executor("aider", lambda cfg: AiderExecutor(cfg))

@@ -234,7 +234,8 @@ def _write_ci_workflow(repo: str, provider: str) -> str:
 
 _EXECUTOR_ADAPTERS = {
     "claude-code": "claude -p {task}",
-    "aider": "aider --yes --message {task}",
+    "codex": "codex exec {task} --json --sandbox workspace-write --skip-git-repo-check",
+    "aider": "aider --yes-always --no-auto-commits --message {task}",
     "shell": "sh -c {task}",
 }
 
