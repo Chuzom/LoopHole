@@ -1,0 +1,81 @@
+name: action-selftest
+
+# Self-test for action.yml (ROADMAP E1.2/1.2.1) — dogfooding the GitHub Action.
+#
+# `run_goal` always calls the planner LLM on round 1 (no bypass exists for an
+# already-satisfied goal), so a fully deterministic, model-free run of the real
+# composite action isn't possible — matching this repo's own ci.yml, which never
+# depends on a live model either. Split accordingly:
+#   - `structural` (required): the CLI machinery the Action depends on (install,
+#     `loophole init`, `loophole contract validate`) — deterministic, no model.
+#   - `dogfood` (best-effort): invokes the ACTUAL `uses: ./` composite action
+#     end to end. On a vanilla runner with no local/remote model reachable this
+#     fails at the model-provider step (exit 2) — correct, honest behavior for
+#     a misconfigured pipeline — so this job is continue-on-error and exists to
+#     prove the Action's invocation syntax and plumbing, not to gate merges.
+
+on:
+  push:
+    paths: ["action.yml", "loophole/**", ".github/workflows/action-selftest.yml"]
+  pull_request:
+    paths: ["action.yml", "loophole/**", ".github/workflows/action-selftest.yml"]
+  workflow_dispatch:
+
+jobs:
+  structural:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - name: action.yml is well-formed YAML with the documented interface
+        run: |
+          pip install --quiet pyyaml
+          python -c "
+          import yaml
+          d = yaml.safe_load(open('action.yml'))
+          assert d['runs']['using'] == 'composite'
+          for req in ('contract', 'goal', 'verify', 'fail-on'):
+              assert req in d['inputs'], req
+          for out in ('status', 'verified-done', 'exit-code', 'result-json'):
+              assert out in d['outputs'], out
+          print('action.yml OK:', len(d['inputs']), 'inputs,', len(d['outputs']), 'outputs')
+          "
+
+      - name: Install loophole from this checkout
+        run: pip install --quiet -e .
+
+      - name: The CLI pieces the Action depends on actually work (no model needed)
+        run: |
+          mkdir -p /tmp/selftest && cd /tmp/selftest
+          git init -q && git commit -q --allow-empty -m init \
+            -c user.email=t@t -c user.name=t
+          loophole init --template python-lib
+          loophole contract validate loophole.json
+          loophole --version
+
+  dogfood:
+    runs-on: ubuntu-latest
+    continue-on-error: true    # see header: fails without a reachable model — expected
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scaffold a template contract to run against
+        run: |
+          mkdir -p /tmp/dogfood && cd /tmp/dogfood
+          git init -q && git commit -q --allow-empty -m init \
+            -c user.email=t@t -c user.name=t
+      - name: Run loophole via the real composite action
+        id: loophole
+        uses: ./
+        with:
+          goal: "no-op: prove the Action's plumbing runs end to end"
+          verify: "true"
+          workspace: /tmp/dogfood
+          max-rounds: "1"
+      - name: Show what the Action reported
+        if: always()
+        run: |
+          echo "status=${{ steps.loophole.outputs.status }}"
+          echo "verified-done=${{ steps.loophole.outputs.verified-done }}"
+          echo "exit-code=${{ steps.loophole.outputs.exit-code }}"

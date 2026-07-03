@@ -1,0 +1,170 @@
+name: 'loophole'
+description: >-
+  CI for AI agents — a swarm works until a falsifiable verifier PROVES the
+  goal is done. Bring your own agent; loophole is the trusted gate.
+author: 'Chuzom'
+
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  contract:
+    description: >-
+      Path to the Goal Contract (from `loophole init`). Ignored when `goal`
+      is set.
+    required: false
+    default: 'loophole.json'
+  goal:
+    description: >-
+      Ad-hoc goal text — an alternative to --contract for a one-off check.
+      Requires `verify`.
+    required: false
+    default: ''
+  verify:
+    description: 'Hard verifier command for an ad-hoc `goal` (exit 0 = done).'
+    required: false
+    default: ''
+  workspace:
+    description: 'Directory the swarm works in.'
+    required: false
+    default: '.'
+  executor:
+    description: 'A registered framework adapter (see `loophole executor list`).'
+    required: false
+    default: ''
+  executor-command:
+    description: >-
+      Bring-your-own executor CLI, e.g. 'claude -p {task}'. Sandboxed either
+      way; the verifier boundary is unchanged.
+    required: false
+    default: ''
+  planner-model:
+    description: 'provider:model for planning.'
+    required: false
+    default: 'chuzom:moderate'
+  executor-model:
+    description: 'provider:model for execution.'
+    required: false
+    default: 'chuzom:complex'
+  max-rounds:
+    description: 'Round circuit-breaker.'
+    required: false
+    default: '25'
+  version:
+    description: >-
+      loophole-agents version to install (pip version spec). Empty = latest
+      from PyPI.
+    required: false
+    default: ''
+  fail-on:
+    description: >-
+      'not-done' (default) fails this step when the run isn't verified done;
+      'never' always exits 0 so the workflow can branch on the outputs
+      instead (report-only mode).
+    required: false
+    default: 'not-done'
+
+outputs:
+  status:
+    description: "'done' | 'paused' | 'failed'"
+    value: ${{ steps.run.outputs.status }}
+  verified-done:
+    description: "'true' | 'false'"
+    value: ${{ steps.run.outputs.verified_done }}
+  exit-code:
+    description: "loophole's own exit code: 0 = done, 1 = not done, 2 = config error"
+    value: ${{ steps.run.outputs.loophole_exit_code }}
+  result-json:
+    description: 'Absolute path to the full machine-readable run result.'
+    value: ${{ steps.run.outputs.result_json }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install bubblewrap (Linux OS sandbox backend)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+
+    - name: Allow unprivileged user namespaces (bwrap on Ubuntu 24.04+)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+        sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+
+    - name: Install loophole
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.version }}" ]; then
+          pip install --quiet "loophole-agents==${{ inputs.version }}"
+        else
+          pip install --quiet -U loophole-agents
+        fi
+        loophole --version
+
+    - name: Validate contract
+      if: inputs.goal == ''
+      shell: bash
+      working-directory: ${{ inputs.workspace }}
+      run: loophole contract validate "${{ inputs.contract }}"
+
+    - name: Run loophole
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.workspace }}
+      run: |
+        set +e
+        RESULT_JSON="${RUNNER_TEMP}/loophole-result.json"
+        ARGS=(run --no-watch --json-file "${RESULT_JSON}"
+              --planner-model "${{ inputs.planner-model }}"
+              --executor-model "${{ inputs.executor-model }}"
+              --max-rounds "${{ inputs.max-rounds }}")
+        if [ -n "${{ inputs.goal }}" ]; then
+          ARGS+=("${{ inputs.goal }}" --verify "${{ inputs.verify }}")
+        else
+          ARGS+=(--contract "${{ inputs.contract }}")
+        fi
+        [ -n "${{ inputs.executor }}" ] && ARGS+=(--executor "${{ inputs.executor }}")
+        [ -n "${{ inputs.executor-command }}" ] && ARGS+=(--executor-command "${{ inputs.executor-command }}")
+
+        loophole "${ARGS[@]}"
+        LOOPHOLE_EXIT=$?
+
+        STATUS=$(jq -r '.status // "unknown"' "${RESULT_JSON}" 2>/dev/null || echo unknown)
+        VERIFIED=$(jq -r '.verified_done // false' "${RESULT_JSON}" 2>/dev/null || echo false)
+
+        {
+          echo "status=${STATUS}"
+          echo "verified_done=${VERIFIED}"
+          echo "loophole_exit_code=${LOOPHOLE_EXIT}"
+          echo "result_json=${RESULT_JSON}"
+        } >> "$GITHUB_OUTPUT"
+
+        if [ -f "${RESULT_JSON}" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          {
+            echo "### loophole — acceptance run"
+            echo
+            echo "**Status:** \`${STATUS}\`  ·  **Verified done:** \`${VERIFIED}\`"
+            echo
+            echo '```text'
+            jq -r '.residual_risk_text // "(no report)"' "${RESULT_JSON}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        # A usage/config error (exit 2) always fails the step regardless of fail-on
+        # — it means the pipeline is misconfigured, not that a check failed honestly.
+        if [ "${LOOPHOLE_EXIT}" -eq 2 ]; then
+          exit 2
+        fi
+        if [ "${{ inputs.fail-on }}" = "never" ]; then
+          exit 0
+        fi
+        exit "${LOOPHOLE_EXIT}"

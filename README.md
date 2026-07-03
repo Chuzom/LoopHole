@@ -260,15 +260,32 @@ verifier boundary is unchanged; no adapter can grant "done." Copy-paste template
 Let any agent open a PR; make loophole the gate that decides if it's done — in CI,
 on neutral ground, with a reviewable audit trail:
 
+```yaml
+# .github/workflows/loophole-gate.yml
+on: [pull_request]
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Chuzom/loophole@v1     # runs loophole against loophole.json
+        with:
+          contract: loophole.json    # or: goal + verify for an ad-hoc check
+```
+
 - **`loophole.json` is acceptance-spec-as-code** — committed, reviewed, reusable.
   Scaffold with `loophole init` (it infers a starter from your repo) or
   `loophole init --template <name>`; share contracts by path or URL.
 - **`loophole audit <run>`** renders every boundary decision (merge-gate rejections,
   write-allowlist violations, soft-judge escalations) with its reason — trust the
   result without reading every diff. `loophole runs` lists past runs.
-- See **[`examples/ci_gate.md`](examples/ci_gate.md)** for a GitHub Actions gate, and
-  **[`examples/cant_fake_done.py`](examples/cant_fake_done.py)** for the 30-second
-  "it can't lie to me" demo.
+- The Action exposes `status` / `verified-done` / `exit-code` / `result-json` as
+  step outputs, and writes a step summary with the Residual-Risk Report — see
+  **[`action.yml`](action.yml)** for all inputs (BYO executor, model overrides,
+  `fail-on: never` for report-only mode).
+- See **[`examples/ci_gate.md`](examples/ci_gate.md)** for the raw-YAML equivalent
+  (no Action), and **[`examples/cant_fake_done.py`](examples/cant_fake_done.py)**
+  for the 30-second "it can't lie to me" demo.
 
 ## Honest status & safety
 
