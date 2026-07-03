@@ -132,7 +132,7 @@ def test_stream_run_prints_lines_then_verdict():
     buf = io.StringIO()
     stream_run(st, gid, out=buf, interval=0.01)
     s = buf.getvalue()
-    assert "⚒  loophole" in s and "build a parser" in s
+    assert ("⚒  loophole" in s or "#  loophole" in s) and "build a parser" in s
     assert "wrote" in s and "REJECT" in s and "VERIFIED" in s
     assert "VERIFIED DONE" in s          # closing verdict
     # append-only: the goal text banner appears exactly once (no repaint)

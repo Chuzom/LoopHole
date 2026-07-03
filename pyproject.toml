@@ -57,3 +57,8 @@ loophole = ["templates/*.json", "schemas/*.json"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "sandbox: requires an OS sandbox such as bwrap or Seatbelt",
+    "network: binds localhost sockets or exercises network egress",
+    "integration: drives a full loophole run or external process boundary",
+]

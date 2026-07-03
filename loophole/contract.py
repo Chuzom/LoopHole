@@ -83,6 +83,46 @@ class Verifier:
         return cls(**d)
 
 
+def http_check_command(url: str, status: int = 200, timeout: int = 5,
+                       retries: int = 3, retry_delay: int = 2) -> str:
+    """Build a hard-verifier shell command: "did `url` return HTTP `status`?"
+    (ROADMAP E3.3 — a first-class helper for the health-check-curl pattern
+    users otherwise hand-roll every time).
+
+    Retries a few times a few seconds apart by default — a just-started
+    service returning connection-refused for the first couple of seconds is
+    the common case here, not an edge case to work around by hand. Pure
+    POSIX sh (no bashisms), a single line so it stores/displays cleanly as
+    one Verifier.command string. The URL is shell-quoted; ``status`` is
+    validated as a real int, so there's no injection surface from either.
+    """
+    status = int(status)
+    timeout = int(timeout)
+    retries = int(retries)
+    retry_delay = int(retry_delay)
+    if status < 100 or status > 599:
+        raise ValueError("status must be a valid HTTP status code")
+    if timeout < 1:
+        raise ValueError("timeout must be >= 1")
+    if retries < 1:
+        raise ValueError("retries must be >= 1")
+    if retry_delay < 0:
+        raise ValueError("retry_delay must be >= 0")
+    q_url = shlex.quote(url)
+    parts = [
+        'i=0',
+        'while [ "$i" -lt {} ]'.format(retries),
+        'do code="$(curl -s -o /dev/null -w \'%{{http_code}}\' --max-time {} {})"'
+            .format(timeout, q_url),
+        '[ "$code" = "{}" ] && exit 0'.format(int(status)),
+        'i=$((i+1))',
+        '[ "$i" -lt {} ] && sleep {}'.format(retries, retry_delay),
+        'done',
+        'exit 1',
+    ]
+    return "; ".join(parts)
+
+
 class ContractError(ValueError):
     """Raised when a Goal Contract is invalid (e.g. has no way to define done)."""
 

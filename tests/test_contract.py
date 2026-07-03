@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import shlex
+
 import pytest
 
-from loophole.contract import GoalContract, Verifier, VerifierKind, ContractError
+from loophole.contract import (
+    ContractError,
+    GoalContract,
+    Verifier,
+    VerifierKind,
+    http_check_command,
+)
 
 
 def test_goal_with_no_verifier_rejected():
@@ -74,3 +82,34 @@ def test_auto_protect_skips_absent_absolute_and_escaping_paths(tmp_path):
                            verify_cmd="/usr/bin/true ../outside.py missing.py")
     assert c.auto_protect(str(tmp_path)) == []
     assert c.all_protected_paths == []
+
+
+def test_http_check_command_builds_retrying_curl_verifier():
+    cmd = http_check_command("http://127.0.0.1:8000/health", status=204,
+                             timeout=7, retries=4, retry_delay=1)
+    assert 'while [ "$i" -lt 4 ]' in cmd
+    assert "curl -s -o /dev/null -w '%{http_code}' --max-time 7 http://127.0.0.1:8000/health" in cmd
+    assert '[ "$code" = "204" ] && exit 0' in cmd
+    assert '[ "$i" -lt 4 ] && sleep 1' in cmd
+    assert cmd.endswith("exit 1")
+
+
+def test_http_check_command_quotes_url():
+    url = "https://example.com/health?x=1&y='bad'"
+    cmd = http_check_command(url)
+    assert " --max-time 5 {})\"".format(shlex.quote(url)) in cmd
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"status": 99}, "status"),
+        ({"status": 600}, "status"),
+        ({"timeout": 0}, "timeout"),
+        ({"retries": 0}, "retries"),
+        ({"retry_delay": -1}, "retry_delay"),
+    ],
+)
+def test_http_check_command_validates_numeric_inputs(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        http_check_command("http://example.test", **kwargs)

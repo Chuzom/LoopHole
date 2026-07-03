@@ -1,8 +1,8 @@
 name: ci
 
-# The full test suite across supported Pythons. The OS sandbox path (Seatbelt on
-# macOS / bubblewrap on Linux) is exercised here under bwrap — so this is also the
-# real proof the sandbox + verifier boundary hold, not just unit logic.
+# Fast/core tests across supported Pythons. Sandbox and localhost-heavy
+# integration coverage stays in sandbox.yml, where the runner is prepared for
+# bwrap and full boundary checks.
 
 on:
   push:
@@ -32,5 +32,5 @@ jobs:
         run: |
           python -m pip install -U pip
           pip install -e '.[dev]'
-      - name: Run the full suite
-        run: pytest -q
+      - name: Run the core suite
+        run: LOOPHOLE_TEST_PROFILE=core pytest -q
