@@ -180,6 +180,20 @@ loophole estimate "<goal>" --max-rounds 10     # dry-run cost prediction
 loophole status <goal-id>  ·  loophole resume <goal-id>  ·  loophole ls
 ```
 
+### Exit codes (the CI contract)
+
+`loophole run` and `loophole resume` exit with one of three stable codes — safe to
+branch on in a pipeline:
+
+| Code | Meaning | The run… |
+|---|---|---|
+| `0` | **verified done** — the declared contract passed | executed |
+| `1` | **not done** — paused, failed, or budget exhausted | executed |
+| `2` | **usage/config error** — bad contract, no goal, unknown provider spec, unknown goal id | never started |
+
+The distinction matters for CI: `1` means the agent tried and the verifier caught
+something (working as intended); `2` means the pipeline itself is misconfigured.
+
 ## Providers
 
 Provider-agnostic — pick per role (cheap executors, strong planner):

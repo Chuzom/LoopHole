@@ -24,6 +24,18 @@ from .report import residual_risk_report
 from .state import Store
 
 
+class UsageError(click.ClickException):
+    """A pre-run configuration/usage problem (bad contract, no goal, bad provider
+    spec) — distinct from a run that executed but didn't reach 'done'.
+
+    CI exit codes for `loophole run`:
+      0 = verified done
+      1 = not done (paused / failed / budget exhausted) — the run EXECUTED
+      2 = usage/config error — the run never started
+    """
+    exit_code = 2
+
+
 def _default_db() -> str:
     home = os.path.join(os.path.expanduser("~"), ".loophole")
     os.makedirs(home, exist_ok=True)
@@ -457,17 +469,17 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
         try:
             contract = registry.load_ref(contract_path)   # file, URL, or registry name
         except (OSError, ValueError) as e:
-            raise click.ClickException(
+            raise UsageError(
                 "could not load contract {}: {}".format(contract_path, e))
         if goal:                      # an explicit GOAL arg overrides the file's
             contract.goal = goal
         if contract.goal.strip().startswith("TODO"):
-            raise click.ClickException(
+            raise UsageError(
                 "the contract goal is still a TODO — edit {} and set a real goal"
                 .format(contract_path))
     else:
         if not goal:
-            raise click.ClickException(
+            raise UsageError(
                 "provide a GOAL, or run `loophole init` then "
                 "`loophole run --contract loophole.json`")
         verifiers: List[Verifier] = []
@@ -485,7 +497,7 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
     try:
         contract.validate()
     except ContractError as e:
-        raise click.ClickException(str(e))
+        raise UsageError(str(e))
 
     try:
         roles = Roles(
@@ -495,7 +507,7 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
             cheap=make_provider(cheap_model) if cheap_model else None,
         )
     except ProviderError as e:
-        raise click.ClickException(str(e))
+        raise UsageError(str(e))
 
     workspace = os.path.realpath(workspace)
     os.makedirs(workspace, exist_ok=True)
@@ -731,7 +743,7 @@ def resume(goal_id: str, executor_model: str, planner_model: str, db: Optional[s
     store = Store(db or _default_db())
     g = store.get_goal(goal_id)
     if not g:
-        raise click.ClickException("no such goal: " + goal_id)
+        raise UsageError("no such goal: " + goal_id)
     contract = GoalContract.from_json(g["contract"])
     store.set_goal_status(goal_id, "running")
     try:
@@ -739,7 +751,7 @@ def resume(goal_id: str, executor_model: str, planner_model: str, db: Optional[s
                       executor=make_provider(executor_model),
                       critic=make_provider(planner_model))
     except ProviderError as e:
-        raise click.ClickException(str(e))
+        raise UsageError(str(e))
     budget = Budget(max_cost_usd=contract.max_cost_usd, max_tokens=contract.max_tokens)
     cfg = LoopConfig()
     outcome = run_goal(store, goal_id, contract, roles, budget, cfg, log=_say)
