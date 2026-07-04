@@ -368,7 +368,7 @@ detailed, sequenced execution plan lives in **[`ROADMAP.md`](ROADMAP.md)**; the 
 
 ## Contributing
 
-Issues and PRs welcome. Run the suite with `pip install -e '.[dev]' && pytest`. The architecture was designed — and adversarially audited — by a multi-model council; that critique style is the project's default. Bring disagreement.
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, test profiles, and what a PR should include. The architecture was designed — and adversarially audited — by a multi-model council; that critique style is the project's default. Bring disagreement. Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md); notable changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
