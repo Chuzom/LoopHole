@@ -58,6 +58,10 @@ def _run(monkeypatch, tmp_path, extra_args, satisfied):
     ws = _git_ws()
     db = os.path.join(str(tmp_path), "state.db")
     json_path = os.path.join(str(tmp_path), "result.json")
+    # A rubric-only run also gets a human-checkpoint fallback (see cli.py);
+    # click.confirm's behavior on no/EOF input was observed to differ across
+    # platforms (auto-confirmed on macOS, Aborted on Linux CI), so answer it
+    # explicitly here rather than relying on either platform's default.
     runner = CliRunner()
     r = runner.invoke(main, [
         "run", "verify-rubric test",
@@ -65,7 +69,7 @@ def _run(monkeypatch, tmp_path, extra_args, satisfied):
         "--critic-model", "fake:judge",
         "--skip-critique", "--no-watch", "--max-rounds", "2",
         "--workspace", ws, "--db", db, "--json-file", json_path, *extra_args,
-    ])
+    ], input="y\n")
     data = json.load(open(json_path)) if os.path.exists(json_path) else None
     return r, data
 
