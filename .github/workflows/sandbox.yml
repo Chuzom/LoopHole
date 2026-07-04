@@ -34,4 +34,9 @@ jobs:
       - name: Confirm sandbox mechanism is bwrap on this host
         run: python -c "from loophole import sandbox; m=sandbox.mechanism(); print('mechanism:', m); assert m=='bwrap', m"
       - name: Run the full suite (sandbox boundary enforced under bwrap)
-        run: pytest -q
+        # Coverage floor is a real, gated measurement (not a one-time claim) —
+        # dogfooding the same discipline --verify-coverage sells to users. The
+        # floor sits below the current measured number (83% at introduction)
+        # to absorb legitimate variance, not to be a rubber stamp; a real drop
+        # in coverage still fails CI.
+        run: pytest -q --cov=loophole --cov-report=term-missing --cov-fail-under=75
