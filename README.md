@@ -17,6 +17,8 @@
 [![sandbox](https://img.shields.io/badge/sandbox-Seatbelt%20%C2%B7%20bubblewrap-f59e0b)](#anti-reward-hacking-the-part-most-tools-skip)
 [![license](https://img.shields.io/badge/license-MIT-64748b)](LICENSE)
 
+*New here? [What loophole actually is](blog/what-loophole-is.md) — no jargon, 2 minutes.*
+
 </div>
 
 ---
