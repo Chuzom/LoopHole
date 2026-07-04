@@ -1,0 +1,13 @@
+{
+  "_help": "Starter contract for a Django app: the test suite passes via manage.py, with settings/migration-adjacent files protected from an agent quietly rewriting them to make the goalpost easier. Edit 'goal', then: loophole run --contract loophole.json",
+  "goal": "TODO: describe the goal in one sentence (what 'done' means)",
+  "verifiers": [
+    {
+      "kind": "hard",
+      "command": "python manage.py test",
+      "expected_test_delta": 0
+    }
+  ],
+  "allowed_writes": ["**"],
+  "protected_paths": [".github/workflows/**", "requirements*.txt", "manage.py", "*/settings.py", "*/settings/*.py", "LICENSE", "loophole.json"]
+}

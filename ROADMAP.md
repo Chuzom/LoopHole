@@ -129,6 +129,11 @@ Each phase has **epics → tasks**. Every task lists: **Deliverable**, **Accepta
     shows the pull-based self-hosted path is actually the bottleneck.
     **Decision:** defer the hosted index to Phase 4 (see E4.1); in the
     meantime, document `add-source` as the E3.2 answer for cross-team sharing.
+    **Update (2026-07-04):** seeded that answer for real — `registry/*.json`
+    at repo root is a curated starter registry (fastapi, nextjs, django,
+    go-service), resolvable today via
+    `registry add-source https://raw.githubusercontent.com/Chuzom/loophole/main/registry/index.json`,
+    regression-tested against the real shipped files (`tests/test_registry.py`).
 ### E3.3 — Richer verifier adapters
 - Coverage threshold, mutation testing, HTTP/health-check helper, LLM-judge rubric library (module SDK already supports graded verifiers).
   - **Acceptance:** each ships with a template contract + test. **Size:** M each.

@@ -10,7 +10,7 @@
 
 [![ci](https://github.com/Chuzom/loophole/actions/workflows/ci.yml/badge.svg)](https://github.com/Chuzom/loophole/actions/workflows/ci.yml)
 [![pypi](https://img.shields.io/pypi/v/loophole-agents?color=3fb950)](https://pypi.org/project/loophole-agents/)
-[![tests](https://img.shields.io/badge/tests-342%20passing-3fb950)](tests/)
+[![tests](https://img.shields.io/badge/tests-343%20passing-3fb950)](tests/)
 [![coverage](https://img.shields.io/badge/coverage-83%25%20%28gated%20%E2%89%A575%25%29-3fb950)](.github/workflows/sandbox.yml)
 [![gauntlet](https://img.shields.io/badge/reward--hacking-5%2F5%20caught-3fb950)](gauntlet/README.md)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab)](#)
@@ -187,6 +187,8 @@ loophole registry list                            # named, shareable acceptance 
 loophole registry add team-default ./loophole.json   # publish a spec; reuse by name
 loophole run --contract team-default              # run a registry spec by name
 loophole registry add-source https://example.com/team-index.json   # cross-team sharing: point at anyone's hosted index today (no loophole-run hosting required)
+loophole registry add-source https://raw.githubusercontent.com/Chuzom/loophole/main/registry/index.json   # curated starters: fastapi, nextjs, django, go-service
+loophole run --contract fastapi                   # ...then run any of them straight by name
 loophole run "<goal>"                            # live STREAM view by DEFAULT (append-only)
 loophole run "<goal>" --view forge               # THE FORGE full-screen dashboard (TTY only)
 loophole run "<goal>" --no-watch                 # plain log (CI / when piping)

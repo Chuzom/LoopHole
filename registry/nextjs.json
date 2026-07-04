@@ -1,0 +1,17 @@
+{
+  "_help": "Starter contract for a Next.js app: tests pass AND the production build actually succeeds (a build that only 'looks' done in dev mode is a common false-positive this catches). Edit 'goal', then: loophole run --contract loophole.json",
+  "goal": "TODO: describe the goal in one sentence (what 'done' means)",
+  "verifiers": [
+    {
+      "kind": "hard",
+      "command": "npm test -- --watchAll=false",
+      "expected_test_delta": 0
+    },
+    {
+      "kind": "hard",
+      "command": "npm run build"
+    }
+  ],
+  "allowed_writes": ["app/**", "pages/**", "components/**", "src/**", "tests/**", "__tests__/**"],
+  "protected_paths": [".github/workflows/**", "package-lock.json", "next.config.*", "LICENSE", "loophole.json"]
+}

@@ -1,0 +1,17 @@
+{
+  "_help": "Starter contract for a Go service: `go test` passes AND the service actually answers a health check once running. Edit 'goal' and the URL/port, then: loophole run --contract loophole.json",
+  "goal": "TODO: describe the goal in one sentence (what 'done' means)",
+  "verifiers": [
+    {
+      "kind": "hard",
+      "command": "go test ./..."
+    },
+    {
+      "kind": "hard",
+      "command": "i=0; while [ \"$i\" -lt 5 ]; do code=\"$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://localhost:8080/healthz)\"; [ \"$code\" = \"200\" ] && exit 0; i=$((i+1)); [ \"$i\" -lt 5 ] && sleep 2; done; exit 1",
+      "allow_network": true
+    }
+  ],
+  "allowed_writes": ["**/*.go"],
+  "protected_paths": [".github/workflows/**", "go.mod", "go.sum", "LICENSE", "loophole.json"]
+}

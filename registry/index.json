@@ -1,0 +1,9 @@
+{
+  "_help": "A seed registry of curated starter contracts for common stacks — hosted in this repo, no separate infra required. Point loophole at it with: loophole registry add-source https://raw.githubusercontent.com/Chuzom/loophole/main/registry/index.json — then `loophole run --contract fastapi` (etc.) resolves one of these by name. Contributions of new stacks welcome; see CONTRIBUTING.md.",
+  "entries": {
+    "fastapi": "fastapi.json",
+    "nextjs": "nextjs.json",
+    "django": "django.json",
+    "go-service": "go-service.json"
+  }
+}

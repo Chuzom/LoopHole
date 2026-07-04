@@ -164,3 +164,30 @@ def test_cli_sources_commands(reg):
     assert "example.test" in r.output
     r = runner.invoke(main, ["registry", "remove-source", "https://example.test/index.json"])
     assert r.exit_code == 0
+
+
+# ---- the shipped seed registry (registry/*.json at repo root) ---------------
+# ROADMAP: a canonical, curated starter registry for common stacks, hosted in
+# this repo (no separate infra) — activates registry add-source's network
+# effect. Resolved here via a real file:// URL against the ACTUAL shipped
+# files, not a reconstruction, so drift in registry/index.json's shape or a
+# broken relative path fails this test, not just a user's first try.
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def test_seed_registry_index_resolves_every_entry(reg):
+    import pathlib
+
+    index_path = os.path.join(_REPO_ROOT, "registry", "index.json")
+    manifest = json.loads(open(index_path, encoding="utf-8").read())
+    entries = manifest["entries"]
+    assert entries, "registry/index.json has no entries"
+
+    registry.add_source(pathlib.Path(index_path).as_uri())
+    names = {e["name"]: e["source"] for e in registry.list_entries()}
+    for name in entries:
+        assert names.get(name) == "remote", "{} not resolved via the seed index".format(name)
+        c = registry.get_contract(name)
+        assert c.hard_verifiers, "{}: seed contract has no hard verifier".format(name)
+        c.validate()   # a parse/shape error here would 500 for every real user
