@@ -111,6 +111,24 @@ Each phase has **epics → tasks**. Every task lists: **Deliverable**, **Accepta
 ### E3.2 — Public contract/verifier registry (web index)
 - Build on the existing local+remote index: a browsable web index + `loophole run --contract <name>@<ver>`, publish/pull flows, and provenance.
   - **Acceptance:** a contract published by team A is runnable by team B via name; the index lists it. **Size:** L.
+  - **Scope note (2026-07-04):** the *pull* side of this already exists and is tested —
+    `loophole registry add-source <url>` points at any JSON manifest (name → contract
+    URL or inline contract), and `resolve()`/`remote_entries()` merge it into
+    name-based resolution (`registry.py`, covered by `tests/test_registry.py`'s
+    remote-index tests). That alone satisfies "team A publishes, team B runs it by
+    name" today — team A just hosts a manifest wherever they already host files
+    (GitHub raw, a gist, S3, an internal server) and shares the URL.
+    What's genuinely missing — a canonical **loophole-operated** index (so
+    users don't need to *find* a manifest URL first), a browsable web UI,
+    `name@version` resolution, and a hosted publish flow — all require an
+    actual hosting decision (a domain, an operator, an abuse/namespace policy,
+    an ongoing cost owner). That's Phase 4 hosted-control-plane territory, not
+    a CLI feature this repo can ship unilaterally, and the same "verify before
+    building" evidence gathered for the Devin/Cursor/OpenHands executor scope
+    calls applies here: don't stand up speculative hosted infra before Phase 1
+    shows the pull-based self-hosted path is actually the bottleneck.
+    **Decision:** defer the hosted index to Phase 4 (see E4.1); in the
+    meantime, document `add-source` as the E3.2 answer for cross-team sharing.
 ### E3.3 — Richer verifier adapters
 - Coverage threshold, mutation testing, HTTP/health-check helper, LLM-judge rubric library (module SDK already supports graded verifiers).
   - **Acceptance:** each ships with a template contract + test. **Size:** M each.

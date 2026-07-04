@@ -12,7 +12,7 @@ checklist for the next execution pass.
 | 2 | Dogfood the GitHub Action/check/comment path on a real PR. | Not started | A real PR gets one sticky Loophole comment and a red/green check run from `GITHUB_TOKEN`. |
 | 3 | Add secret-scrub regression coverage for JSON and PR comments. | Not started | A run with fake secret env vars emits no secret-shaped values in JSON, comments, or check summaries. |
 | 4 | Harden Action onboarding and release packaging. | Not started | README and generated workflow use `uses: Chuzom/loophole@v1`; the action self-test runs in CI. |
-| 5 | Expand richer verifier adapters after the HTTP helper. | Partly done | HTTP health-check helper is covered; next templates cover coverage threshold, mutation testing, and reusable LLM rubric verifiers. |
+| 5 | Expand richer verifier adapters after the HTTP helper. | Partly done | HTTP health-check, coverage-threshold, and LLM-judge rubric library all shipped with template contracts + tests; mutation testing remains open. |
 
 ## Phase task plan
 
@@ -26,8 +26,8 @@ checklist for the next execution pass.
 | P1 PR path | Secret scrub across public outputs. | Not started | Add tests for JSON, PR comment Markdown, and Check Run summaries. |
 | P1 Onboarding | `loophole init` scaffolds contract plus Action workflow. | Mostly done | Switch generated CI to the Action one-liner once release packaging is ready. |
 | P2 Executors | Codex, Claude Code, aider adapters. | Partly done | Prioritize Cursor/Composer and OpenHands only after P1 dogfood is stable. |
-| P3 Contracts | CI inference and verifier registry. | Partly done | Keep local registry tests green; define public publish/pull format. |
-| P3 Verifiers | HTTP health, coverage, mutation, LLM rubric adapters. | Partly done | Add template contracts and tests for the remaining adapters. |
+| P3 Contracts | CI inference and verifier registry. | Partly done | `--from-ci` inference and the local+remote registry (`registry add-source`) are done and tested; a loophole-operated hosted web index is explicitly deferred to Phase 4 (ROADMAP.md E3.2 scope note — needs a hosting/ops decision, not a CLI change). |
+| P3 Verifiers | HTTP health, coverage, mutation, LLM rubric adapters. | Mostly done | HTTP health-check, coverage-threshold, and LLM-judge rubric library shipped with template contracts + tests; mutation testing remains open. |
 | P4 Hosted | GitHub App, dashboards, org policy. | Not started | Do not start until Phase 1 shows sustained PR-check usage. |
 | P5 Category | Benchmarks and Goal Contract spec. | Not started | Start after P1/P2 proof points exist. |
 

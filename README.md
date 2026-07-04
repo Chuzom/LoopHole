@@ -170,6 +170,7 @@ loophole contract validate loophole.json        # validate / show a contract (pa
 loophole registry list                            # named, shareable acceptance specs
 loophole registry add team-default ./loophole.json   # publish a spec; reuse by name
 loophole run --contract team-default              # run a registry spec by name
+loophole registry add-source https://example.com/team-index.json   # cross-team sharing: point at anyone's hosted index today (no loophole-run hosting required)
 loophole run "<goal>"                            # live STREAM view by DEFAULT (append-only)
 loophole run "<goal>" --view forge               # THE FORGE full-screen dashboard (TTY only)
 loophole run "<goal>" --no-watch                 # plain log (CI / when piping)
@@ -351,15 +352,18 @@ audited by a multi-model council; we publish our own findings.
 - [x] Chuzom-routed models — with verifier verdicts fed back as **ground-truth routing quality**
 - [x] **Enforced scoped egress** (localhost jail + host-allowlisted proxy) on macOS
 - [x] History-grounded `loophole estimate` · goal finish-reasons surfaced in `status`/`audit`
+- [x] Contract inference from existing CI (`init --from-ci`) · GitHub Action + sticky PR comment/Check Run
+- [x] Richer verifier adapters: HTTP/health-check, coverage-threshold, LLM-judge rubric library
 
 **Next** — the acceptance-layer bet (*"CI for AI agents," bring-your-own-executor*). The
 detailed, sequenced execution plan lives in **[`ROADMAP.md`](ROADMAP.md)**; the headline bets:
 
-- [ ] **Get into the PR** — a GitHub Action + native PR check & comment (the adoption unlock)
-- [ ] First-class executor adapters for frontier coding agents (Cursor, Codex, aider, OpenHands, Devin)
-- [ ] Contract inference from existing CI + a public contract/verifier registry
-- [ ] Hosted control-plane (run history, audit, policy, fleet dashboards)
+- [ ] First-class executor adapters for frontier coding agents (Cursor, OpenHands, Devin — codex/aider/claude-code already ship)
+- [ ] Hosted control-plane (run history, audit, policy, fleet dashboards) — includes a canonical,
+      browsable public contract/verifier web index; until then, `registry add-source <url>` lets any
+      team self-host a shareable index today (see `ROADMAP.md` E3.2 for the scoping rationale)
 - [ ] bubblewrap netns egress scoping (Linux parity with the macOS proxy)
+- [ ] Mutation testing verifier adapter
 
 ## Contributing
 
