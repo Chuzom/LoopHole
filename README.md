@@ -30,7 +30,7 @@
 - [Anti-reward-hacking](#anti-reward-hacking-the-part-most-tools-skip)
 - [CLI](#cli) · [Providers](#providers)
 - [Bring your own executor](#bring-your-own-executor)
-- [For teams — CI acceptance gate](#for-teams--loophole-as-a-ci-acceptance-gate)
+- [For teams — CI acceptance gate](#for-teams--loophole-as-a-ci-acceptance-gate) · [vs. AI review bots](#not-another-ai-review-bot)
 - [Honest status & safety](#honest-status--safety) · [Roadmap](#roadmap)
 - [Contributing](#contributing) · [License](#license)
 
@@ -294,6 +294,30 @@ verifier boundary is unchanged; no adapter can grant "done." Copy-paste template
 
 Let any agent open a PR; make loophole the gate that decides if it's done — in CI,
 on neutral ground, with a reviewable audit trail:
+
+### Not another AI review bot
+
+CodeRabbit, Greptile, Cursor Bugbot, and GitHub's own Copilot code review are
+good at what they do — commenting on a diff with an LLM's judgment. None of
+them run the code. loophole is a different category: it executes the
+candidate in an isolated sandbox and only trusts a real, falsifiable check.
+
+| | **loophole** | CodeRabbit / Greptile / Copilot review | Cursor Bugbot | Sonar AI Code Assurance |
+|---|---|---|---|---|
+| Blocks a merge on its own verdict | ✅ the merge gate | ❌ comments only | ❌ gates on CI status, not its own review | ✅ |
+| Runs the candidate in an isolated sandbox | ✅ Seatbelt / bubblewrap, network-denied by default | ❌ | ❌ | ❌ |
+| Arbitrary HARD verifier (any real command — `pytest`, `curl`, your own script) | ✅ | ❌ LLM judgment on the diff | ❌ | ❌ static-analysis rules |
+| Re-verifies **after** a candidate is accepted | ✅ closes the "edited its own tests" gap | ❌ | ❌ | ❌ |
+| Bring your own agent | ✅ Claude Code, Codex, aider, or any command | — reviews any PR | — reviews any PR | — reviews any PR |
+| Open source, self-hostable | ✅ MIT | ❌ | ❌ | ❌ |
+
+The closest thing to loophole's merge-gate mechanics is Sonar's AI Code
+Assurance — a real, enforceable gate, and worth using alongside loophole if
+you already run SonarQube. It gates on static-analysis rules, though, not on
+executing the candidate against arbitrary HARD checks in an isolated sandbox
+— the reward-hacking gap ([57% of audited agent trajectories cheated in a
+recent SWE-bench Pro study](https://www.marktechpost.com/2026/06/26/cursor-study-finds-reward-hacking-inflates-coding-agent-benchmark-scores-on-swe-bench-pro/))
+that a static rule set alone can't see.
 
 ```yaml
 # .github/workflows/loophole-gate.yml
