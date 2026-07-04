@@ -89,7 +89,12 @@ jobs:
   comment-dogfood:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # A job-level `permissions:` block REPLACES the entire default permission
+    # set rather than adding to it — omitting `contents: read` here silently
+    # revoked actions/checkout's own read access (observed live: "Repository
+    # not found" on a real PR run). List every permission this job needs.
     permissions:
+      contents: read
       pull-requests: write
       checks: write
     steps:
