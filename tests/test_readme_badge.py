@@ -16,6 +16,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _BADGE_RE = re.compile(r"tests-(\d+)%20passing")
 _COLLECTED_RE = re.compile(r"(\d+) tests? collected")
+_GAUNTLET_BADGE_RE = re.compile(r"reward--hacking-(\d+)%2F(\d+)%20caught")
 
 
 def test_readme_test_count_badge_matches_actual_collection():
@@ -36,4 +37,25 @@ def test_readme_test_count_badge_matches_actual_collection():
         "README's tests badge claims {} passing but {} are actually collected "
         "— update the badge in README.md (the shields.io URL containing "
         "'tests-{}%20passing').".format(claimed, actual, claimed)
+    )
+
+
+def test_readme_gauntlet_badge_matches_scenario_count():
+    from gauntlet.scenarios import ALL_SCENARIOS
+
+    readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    m = _GAUNTLET_BADGE_RE.search(readme)
+    assert m, "README.md's reward-hacking gauntlet badge not found, or its shape changed"
+    claimed_caught, claimed_total = int(m.group(1)), int(m.group(2))
+
+    actual_total = len(ALL_SCENARIOS)
+    assert claimed_total == actual_total, (
+        "README's gauntlet badge claims {} total scenarios but gauntlet/scenarios.py "
+        "defines {} — update the badge.".format(claimed_total, actual_total)
+    )
+    # the badge should never claim a caught-count higher than what test_gauntlet.py
+    # actually enforces; if a scenario is ever allowed to fail, the badge must say so.
+    assert claimed_caught == claimed_total, (
+        "README's gauntlet badge claims {}/{} caught — if that's not 100%, the badge "
+        "text is making an excuse, not reporting a result.".format(claimed_caught, claimed_total)
     )

@@ -10,8 +10,9 @@
 
 [![ci](https://github.com/Chuzom/loophole/actions/workflows/ci.yml/badge.svg)](https://github.com/Chuzom/loophole/actions/workflows/ci.yml)
 [![pypi](https://img.shields.io/pypi/v/loophole-agents?color=3fb950)](https://pypi.org/project/loophole-agents/)
-[![tests](https://img.shields.io/badge/tests-341%20passing-3fb950)](tests/)
+[![tests](https://img.shields.io/badge/tests-342%20passing-3fb950)](tests/)
 [![coverage](https://img.shields.io/badge/coverage-83%25%20%28gated%20%E2%89%A575%25%29-3fb950)](.github/workflows/sandbox.yml)
+[![gauntlet](https://img.shields.io/badge/reward--hacking-5%2F5%20caught-3fb950)](gauntlet/README.md)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab)](#)
 [![providers](https://img.shields.io/badge/providers-Ollama%20%C2%B7%20Anthropic%20%C2%B7%20OpenAI-8b5cf6)](#)
 [![sandbox](https://img.shields.io/badge/sandbox-Seatbelt%20%C2%B7%20bubblewrap-f59e0b)](#anti-reward-hacking-the-part-most-tools-skip)
@@ -157,6 +158,13 @@ Because the verifier *is* the goalpost, loophole defends it:
 - **No fake "done"** — if an agent claims completion but changed nothing, it's rejected.
 - **Secrets never reach verifiers** — your `ANTHROPIC_API_KEY` and friends are scrubbed from the subprocess environment.
 - **Scoped egress** — an executor granted network access reaches *only* the hosts you declare (macOS: enforced via a localhost-only jail + a host-allowlisted proxy; denied hosts are 403'd and audited).
+
+Don't take that list on faith — **[run the reward-hacking gauntlet](gauntlet/README.md)**
+yourself: five real cheats (including the exact test-config-editing pattern a
+[2026 Cursor study](https://www.marktechpost.com/2026/06/26/cursor-study-finds-reward-hacking-inflates-coding-agent-benchmark-scores-on-swe-bench-pro/)
+found in 57% of audited agent trajectories), each run against the real CLI and
+caught. `python -m gauntlet` after installing, or read the
+[live results in CI](https://github.com/Chuzom/loophole/actions/workflows/sandbox.yml).
 
 ## CLI
 
@@ -386,6 +394,7 @@ audited by a multi-model council; we publish our own findings.
 - [x] History-grounded `loophole estimate` · goal finish-reasons surfaced in `status`/`audit`
 - [x] Contract inference from existing CI (`init --from-ci`) · GitHub Action + sticky PR comment/Check Run
 - [x] Richer verifier adapters: HTTP/health-check, coverage-threshold, LLM-judge rubric library
+- [x] The reward-hacking gauntlet — a public, re-runnable proof (`python -m gauntlet`), permanent CI regression suite
 
 **Next** — the acceptance-layer bet (*"CI for AI agents," bring-your-own-executor*). The
 detailed, sequenced execution plan lives in **[`ROADMAP.md`](ROADMAP.md)**; the headline bets:
