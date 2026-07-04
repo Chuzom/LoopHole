@@ -12,6 +12,7 @@ CORE_SKIP_FILES = {
     "tests/test_executor_backends.py": "framework executor tests require OS sandbox behavior",
     "tests/test_executor_network.py": "exercises sandboxed network/egress behavior",
     "tests/test_feedback.py": "binds a local HTTP server",
+    "tests/test_gauntlet.py": "drives full runs (5 scenarios) under the OS sandbox",
     "tests/test_gh.py": "binds a local fake GitHub HTTP server",
     "tests/test_merge_gate.py": "drives full merge/verifier loops under the OS sandbox",
     "tests/test_read_confine.py": "Seatbelt read-confinement integration tests",

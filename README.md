@@ -10,7 +10,7 @@
 
 [![ci](https://github.com/Chuzom/loophole/actions/workflows/ci.yml/badge.svg)](https://github.com/Chuzom/loophole/actions/workflows/ci.yml)
 [![pypi](https://img.shields.io/pypi/v/loophole-agents?color=3fb950)](https://pypi.org/project/loophole-agents/)
-[![tests](https://img.shields.io/badge/tests-336%20passing-3fb950)](tests/)
+[![tests](https://img.shields.io/badge/tests-341%20passing-3fb950)](tests/)
 [![coverage](https://img.shields.io/badge/coverage-83%25%20%28gated%20%E2%89%A575%25%29-3fb950)](.github/workflows/sandbox.yml)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab)](#)
 [![providers](https://img.shields.io/badge/providers-Ollama%20%C2%B7%20Anthropic%20%C2%B7%20OpenAI-8b5cf6)](#)

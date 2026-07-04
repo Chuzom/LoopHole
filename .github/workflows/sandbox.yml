@@ -40,3 +40,14 @@ jobs:
         # to absorb legitimate variance, not to be a rubber stamp; a real drop
         # in coverage still fails CI.
         run: pytest -q --cov=loophole --cov-report=term-missing --cov-fail-under=75
+      - name: Reward-hacking gauntlet (public proof, not just a private test)
+        # tests/test_gauntlet.py already enforces this above via pytest; this
+        # step exists so the result is VISIBLE — a stranger can open this run
+        # and see exactly which cheats were attempted and caught, without
+        # needing any external hosting or a leaderboard site.
+        run: |
+          set -o pipefail
+          echo '## Reward-hacking gauntlet' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          python -m gauntlet | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
