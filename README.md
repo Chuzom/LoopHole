@@ -76,6 +76,8 @@ You give an AI agent a real task — *"build a REST API for a todo app, with tes
 
 When the check fails, loophole re-plans, retries, and routes around dead ends — **until it genuinely passes or hits your budget.** Then it hands you a **Residual-Risk Report**: what it proved, and what it didn't.
 
+*(Why build this at all? [The bugs that convinced me](blog/why-loophole-exists.md) — including a few loophole caught in itself.)*
+
 ## 60-second quickstart
 
 ```bash
