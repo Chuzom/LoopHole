@@ -9,6 +9,7 @@
 **The acceptance layer for autonomous coding — "CI for AI agents." Bring your own agent; loophole is the trusted gate that decides what's _actually_ done.**
 
 [![ci](https://github.com/Chuzom/loophole/actions/workflows/ci.yml/badge.svg)](https://github.com/Chuzom/loophole/actions/workflows/ci.yml)
+[![pypi](https://img.shields.io/pypi/v/loophole-agents?color=3fb950)](https://pypi.org/project/loophole-agents/)
 [![tests](https://img.shields.io/badge/tests-336%20passing-3fb950)](tests/)
 [![coverage](https://img.shields.io/badge/coverage-83%25%20%28gated%20%E2%89%A575%25%29-3fb950)](.github/workflows/sandbox.yml)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab)](#)
@@ -78,15 +79,17 @@ When the check fails, loophole re-plans, retries, and routes around dead ends �
 ## 60-second quickstart
 
 ```bash
-git clone https://github.com/Chuzom/loophole && cd loophole
-python -m venv .venv && source .venv/bin/activate
-pip install -e .          # zero-config: works with local Ollama out of the box
+pip install loophole-agents   # zero-config: works with local Ollama out of the box
 
 # point it at a goal + a way to check "done":
 loophole run "Create add.py with add(a,b) returning a+b" \
   --verify 'python3 -c "from add import add; assert add(2,3)==5; print(\"ok\")"' \
   --workspace ./out
 ```
+
+Working from a clone instead (contributing, or want an editable install)? See
+[CONTRIBUTING.md](CONTRIBUTING.md#dev-setup) — `pip install -e '.[dev]'` in place
+of the line above.
 
 ```text
 🎯 goal goal-3034039ba5f5
