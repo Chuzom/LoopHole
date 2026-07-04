@@ -13,6 +13,14 @@ name: action-selftest
 #     fails at the model-provider step (exit 2) — correct, honest behavior for
 #     a misconfigured pipeline — so this job is continue-on-error and exists to
 #     prove the Action's invocation syntax and plumbing, not to gate merges.
+#   - `comment-dogfood` (pull_request only): a full `loophole run --comment`
+#     can't be dogfooded on a vanilla runner either (same "no reachable model"
+#     limitation — it never reaches the posting code, since planning happens
+#     first). What CAN be proven without any model or paid secret is whether
+#     loophole/gh.py's real GitHub REST calls actually work — auth, endpoints,
+#     upsert-vs-create semantics — using only the free, auto-provided
+#     GITHUB_TOKEN. This posts one clearly-labeled self-test comment + Check
+#     Run to whatever PR triggered the run.
 
 on:
   push:
@@ -77,3 +85,48 @@ jobs:
           echo "status=${{ steps.loophole.outputs.status }}"
           echo "verified-done=${{ steps.loophole.outputs.verified-done }}"
           echo "exit-code=${{ steps.loophole.outputs.exit-code }}"
+
+  comment-dogfood:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # A job-level `permissions:` block REPLACES the entire default permission
+    # set rather than adding to it — omitting `contents: read` here silently
+    # revoked actions/checkout's own read access (observed live: "Repository
+    # not found" on a real PR run). List every permission this job needs.
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install --quiet -e .
+      - name: Post a real sticky comment + Check Run via gh.py (no model needed)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 -c "
+          import os
+          from loophole.gh import pr_context, upsert_pr_comment, create_check_run, render_comment_body
+          ctx = pr_context()
+          assert ctx, 'expected a pull_request event context'
+          token = os.environ['GITHUB_TOKEN']
+          result = {
+              'status': 'done', 'verified_done': True,
+              'goal': 'action-selftest comment-dogfood: prove the real GitHub comment/Check-Run path',
+              'rounds': 0, 'verifier_rejections': 0, 'cheats_blocked': 0,
+              'residual_risk_text': (
+                  'This is a self-test artifact from .github/workflows/action-selftest.yml\'s '
+                  'comment-dogfood job — it proves loophole/gh.py can post a sticky comment '
+                  'and create a Check Run against the real GitHub API. It is NOT a real '
+                  'loophole verification result for this PR.'),
+          }
+          body = render_comment_body(result)
+          upsert_pr_comment(ctx['repo'], ctx['pr_number'], token, body)
+          create_check_run(
+              ctx['repo'], ctx['sha'], token, name='loophole / comment-dogfood',
+              conclusion='success', title='dogfood self-test — not a real verification',
+              summary=result['residual_risk_text'])
+          print('posted self-test comment + check run for PR #{}'.format(ctx['pr_number']))
+          "
