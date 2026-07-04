@@ -50,7 +50,10 @@ loophole = "loophole.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["loophole*"]
+# gauntlet ships too: `python -m gauntlet` is meant to work for anyone who
+# installs loophole-agents, not just from a repo checkout (ROADMAP —
+# the reward-hacking gauntlet is a public, re-runnable proof).
+include = ["loophole*", "gauntlet*"]
 
 [tool.setuptools.package-data]
 loophole = ["templates/*.json", "schemas/*.json", "rubrics/*.txt"]
