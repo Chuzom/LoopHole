@@ -137,6 +137,15 @@ Each phase has **epics → tasks**. Every task lists: **Deliverable**, **Accepta
 ### E3.3 — Richer verifier adapters
 - Coverage threshold, mutation testing, HTTP/health-check helper, LLM-judge rubric library (module SDK already supports graded verifiers).
   - **Acceptance:** each ships with a template contract + test. **Size:** M each.
+  - **Status:** all four shipped. Mutation testing (`--verify-mutation`, wrapping
+    mutmut) has a real platform gap, found and documented rather than papered
+    over: mutmut unconditionally opens a PTY to stream output, which macOS
+    Seatbelt's deny-by-default profile blocks (verified live — `PermissionError`
+    at `os.openpty()`); bubblewrap's minimal `/dev` includes PTY support by
+    convention, so this verifier is Linux-only for now. Its end-to-end test is
+    skipped on Seatbelt with a clear reason and enforced for real in CI's
+    Linux/bwrap `sandbox.yml` job. Also pins `mutmut<3`: 3.3.1 segfaulted on
+    every mutant in live testing; 2.5.1 worked correctly.
 
 **Phase 3 exit criteria:** the median new user runs a *good* contract they didn't hand-author (inferred or from the registry).
 

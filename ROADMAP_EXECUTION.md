@@ -12,7 +12,7 @@ checklist for the next execution pass.
 | 2 | Dogfood the GitHub Action/check/comment path on a real PR. | Done | A full `--comment` run can't complete live here (round-1 planning needs a reachable model; this repo has no model secrets in Actions). Proved the actually-uncertain part instead: `action-selftest.yml`'s new `comment-dogfood` job calls `gh.py`'s real REST functions directly against the live GitHub API on Chuzom/loophole#1 — a real sticky comment + a green `loophole / comment-dogfood` Check Run both landed on that PR. |
 | 3 | Add secret-scrub regression coverage for JSON and PR comments. | Done | Writing the regression test surfaced a real gap: `--json`/`--json-file` had no scrub check at all (only `--comment` did). Fixed with `gh.redact_leaked_secrets()` applied once upstream of all three output surfaces; `tests/test_gh.py` covers a fake secret leaked via the goal string end to end. |
 | 4 | Harden Action onboarding and release packaging. | Not started | README and generated workflow use `uses: Chuzom/loophole@v1`; the action self-test runs in CI. |
-| 5 | Expand richer verifier adapters after the HTTP helper. | Partly done | HTTP health-check, coverage-threshold, and LLM-judge rubric library all shipped with template contracts + tests; mutation testing remains open. |
+| 5 | Expand richer verifier adapters after the HTTP helper. | Done | HTTP health-check, coverage-threshold, LLM-judge rubric library, and mutation testing (Linux/bwrap only — mutmut's PTY use is blocked by macOS Seatbelt, verified live) all shipped with template contracts + tests. |
 
 ## Phase task plan
 
@@ -27,7 +27,7 @@ checklist for the next execution pass.
 | P1 Onboarding | `loophole init` scaffolds contract plus Action workflow. | Mostly done | Switch generated CI to the Action one-liner once release packaging is ready. |
 | P2 Executors | Codex, Claude Code, aider adapters. | Partly done | Prioritize Cursor/Composer and OpenHands only after P1 dogfood is stable. |
 | P3 Contracts | CI inference and verifier registry. | Partly done | `--from-ci` inference and the local+remote registry (`registry add-source`) are done and tested; a loophole-operated hosted web index is explicitly deferred to Phase 4 (ROADMAP.md E3.2 scope note — needs a hosting/ops decision, not a CLI change). |
-| P3 Verifiers | HTTP health, coverage, mutation, LLM rubric adapters. | Mostly done | HTTP health-check, coverage-threshold, and LLM-judge rubric library shipped with template contracts + tests; mutation testing remains open. |
+| P3 Verifiers | HTTP health, coverage, mutation, LLM rubric adapters. | Done | All four shipped with template contracts + tests. Mutation testing (`--verify-mutation`) is Linux/bwrap only — mutmut's PTY use is blocked by macOS Seatbelt (verified live via a real PermissionError), and mutmut is pinned below 3.x (3.3.1 segfaulted on every mutant in live testing). |
 | P4 Hosted | GitHub App, dashboards, org policy. | Not started | Do not start until Phase 1 shows sustained PR-check usage. |
 | P5 Category | Benchmarks and Goal Contract spec. | Not started | Start after P1/P2 proof points exist. |
 

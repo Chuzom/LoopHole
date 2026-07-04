@@ -1,0 +1,17 @@
+{
+  "_help": "Starter contract for a mutation-testing gate: the suite must pass AND kill every mutant mutmut introduces into the target package (a stronger signal than coverage — coverage only proves a line RAN, not that a test would catch a bug in it). Build the second verifier with `--verify-mutation src --verify-mutation-tests-dir tests` instead of hand-editing it. Requires pytest-cov (pip install \"mutmut>=2.4,<3\" — pin below 3.x, verified to segfault). Linux only for now: mutmut opens a PTY that macOS Seatbelt denies (verified live); works under bwrap. Edit 'goal' and the target package, then: loophole run --contract loophole.json",
+  "goal": "TODO: describe the goal in one sentence (what 'done' means)",
+  "verifiers": [
+    {
+      "kind": "hard",
+      "command": "pytest -q",
+      "expected_test_delta": 0
+    },
+    {
+      "kind": "hard",
+      "command": "mutmut run --paths-to-mutate=src --tests-dir=tests"
+    }
+  ],
+  "allowed_writes": ["src/**", "tests/**"],
+  "protected_paths": [".github/workflows/**", "*.lock", "LICENSE", "loophole.json"]
+}

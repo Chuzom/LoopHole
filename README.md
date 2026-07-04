@@ -10,7 +10,7 @@
 
 [![ci](https://github.com/Chuzom/loophole/actions/workflows/ci.yml/badge.svg)](https://github.com/Chuzom/loophole/actions/workflows/ci.yml)
 [![pypi](https://img.shields.io/pypi/v/loophole-agents?color=3fb950)](https://pypi.org/project/loophole-agents/)
-[![tests](https://img.shields.io/badge/tests-343%20passing-3fb950)](tests/)
+[![tests](https://img.shields.io/badge/tests-353%20passing-3fb950)](tests/)
 [![coverage](https://img.shields.io/badge/coverage-83%25%20%28gated%20%E2%89%A575%25%29-3fb950)](.github/workflows/sandbox.yml)
 [![gauntlet](https://img.shields.io/badge/reward--hacking-5%2F5%20caught-3fb950)](gauntlet/README.md)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab)](#)
@@ -179,6 +179,7 @@ loophole run "<goal>" --protect "tests/**" --expect-test-delta 0   # lock the su
 loophole run "<goal>" --verify "pytest -q" --verify-http http://localhost:8000/health   # tests AND a live health check — composable, both must pass
 loophole init --template http-service           # starter contract for that pattern
 loophole run "<goal>" --verify-coverage 80 --verify-coverage-target mypkg   # hard-fail unless pytest-cov reports >= 80% coverage of mypkg
+loophole run "<goal>" --verify-mutation src --verify-mutation-tests-dir tests   # hard-fail unless mutmut kills every mutant (Linux/bwrap only — PTY blocked under macOS Seatbelt)
 loophole run --list-rubrics                     # bundled LLM-judge rubrics (no-stub-implementations, no-hardcoded-secrets, ...)
 loophole run "<goal>" --verify "pytest -q" --verify-rubric no-stub-implementations   # tests pass AND a judge vetoes placeholder code
 loophole init --template rubric-guarded         # starter contract composing a hard verifier with rubric vetoes
@@ -405,17 +406,18 @@ audited by a multi-model council; we publish our own findings.
 - [x] Contract inference from existing CI (`init --from-ci`) · GitHub Action + sticky PR comment/Check Run
 - [x] Richer verifier adapters: HTTP/health-check, coverage-threshold, LLM-judge rubric library
 - [x] The reward-hacking gauntlet — a public, re-runnable proof (`python -m gauntlet`), permanent CI regression suite
+- [x] Mutation testing verifier adapter (`--verify-mutation`, Linux/bwrap only — mutmut's PTY use is blocked by macOS Seatbelt, verified live)
+- [x] Seed contract registry for common stacks (fastapi, nextjs, django, go-service) via `registry add-source`
+- [x] Position against GitHub's own Agentic Workflows — see [loophole and gh-aw](blog/loophole-and-github-agentic-workflows.md): complementary (it secures the agent's runtime; loophole verifies what the agent produced), with a documented recipe for running both together
 
 **Next** — the acceptance-layer bet (*"CI for AI agents," bring-your-own-executor*). The
 detailed, sequenced execution plan lives in **[`ROADMAP.md`](ROADMAP.md)**; the headline bets:
 
 - [ ] First-class executor adapters for frontier coding agents (Cursor, OpenHands, Devin — codex/aider/claude-code already ship)
-- [x] Position against GitHub's own Agentic Workflows — see [loophole and gh-aw](blog/loophole-and-github-agentic-workflows.md): complementary (it secures the agent's runtime; loophole verifies what the agent produced), with a documented recipe for running both together
 - [ ] Hosted control-plane (run history, audit, policy, fleet dashboards) — includes a canonical,
       browsable public contract/verifier web index; until then, `registry add-source <url>` lets any
       team self-host a shareable index today (see `ROADMAP.md` E3.2 for the scoping rationale)
 - [ ] bubblewrap netns egress scoping (Linux parity with the macOS proxy)
-- [ ] Mutation testing verifier adapter
 
 ## Contributing
 

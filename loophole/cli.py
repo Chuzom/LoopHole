@@ -12,7 +12,8 @@ import click
 from . import __version__
 from .budget import Budget, estimate as estimate_cost
 from .contract import (GoalContract, Verifier, VerifierKind, ContractError,
-                       http_check_command, coverage_check_command)
+                       http_check_command, coverage_check_command,
+                       mutation_check_command)
 from . import registry
 from .initializer import (CONTRACT_FILENAME, detect_contract, write_starter,
                           load_contract, load_template_raw,
@@ -487,6 +488,17 @@ def contract_show(path: str) -> None:
 @click.option("--verify-coverage-target", default=".", metavar="PACKAGE",
               help="Package/module path passed to --cov for --verify-coverage "
                    "(default: '.').")
+@click.option("--verify-mutation", default=None, metavar="PATH",
+              help="Add a mutation-testing hard verifier: does mutmut find "
+                   "ZERO surviving mutants in PATH? Composable with "
+                   "--verify/--verify-http/--verify-coverage. Requires mutmut "
+                   "(pip install \"mutmut>=2.4,<3\" — pin below 3.x, verified live "
+                   "to segfault on every mutant; loophole doesn't install it for you). "
+                   "Linux only for now: mutmut opens a PTY to stream output, which "
+                   "macOS Seatbelt's sandbox denies (verified live); works under bwrap.")
+@click.option("--verify-mutation-tests-dir", default=None, metavar="DIR",
+              help="Test directory passed to --tests-dir for --verify-mutation "
+                   "(default: mutmut's own auto-discovery).")
 @click.option("--verify-rubric", default=None, metavar="NAME",
               help="Add an LLM-judge soft verifier from the bundled rubric library "
                    "(see --list-rubrics). A soft verifier can only VETO a hard pass, "
@@ -515,6 +527,7 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
         verify_http: Optional[str], verify_http_status: int, verify_http_timeout: int,
         verify_http_retries: int, verify_http_retry_delay: int,
         verify_coverage: Optional[int], verify_coverage_target: str,
+        verify_mutation: Optional[str], verify_mutation_tests_dir: Optional[str],
         verify_rubric: Optional[str], list_rubrics: bool,
         skip_critique: bool, comment: bool,
         db: Optional[str]) -> None:
@@ -572,6 +585,13 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
                 raise UsageError("--verify-coverage: {}".format(e))
             verifiers.append(Verifier(kind=VerifierKind.HARD, command=cov_cmd,
                                       protected_paths=list(protect)))
+        if verify_mutation is not None:
+            try:
+                mut_cmd = mutation_check_command(verify_mutation, tests_dir=verify_mutation_tests_dir)
+            except ValueError as e:
+                raise UsageError("--verify-mutation: {}".format(e))
+            verifiers.append(Verifier(kind=VerifierKind.HARD, command=mut_cmd,
+                                      protected_paths=list(protect)))
         if verify_rubric:
             try:
                 rubric_text = load_rubric(verify_rubric).replace("{goal}", goal)
@@ -581,7 +601,8 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
         # NOTE: verify_rubric never suppresses this fallback on its own — a soft
         # verifier can only VETO, so a rubric-only run still needs a human (or
         # hard) verifier able to GRANT, or GoalContract.validate() rejects it.
-        if human or not (verify_cmd or verify_http or verify_coverage is not None):
+        if human or not (verify_cmd or verify_http or verify_coverage is not None
+                          or verify_mutation is not None):
             verifiers.append(Verifier(kind=VerifierKind.HUMAN,
                                       prompt="Does the result satisfy: " + goal + "?"))
         contract = GoalContract(goal=goal, verifiers=verifiers,

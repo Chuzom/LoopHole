@@ -11,6 +11,7 @@ from loophole.contract import (
     VerifierKind,
     coverage_check_command,
     http_check_command,
+    mutation_check_command,
 )
 
 
@@ -141,3 +142,30 @@ def test_coverage_check_command_quotes_target():
 def test_coverage_check_command_validates_min_percent(min_percent, message):
     with pytest.raises(ValueError, match=message):
         coverage_check_command(min_percent)
+
+
+def test_mutation_check_command_builds_mutmut_invocation():
+    cmd = mutation_check_command("mypkg")
+    assert cmd == "mutmut run --paths-to-mutate=mypkg"
+
+
+def test_mutation_check_command_with_tests_dir():
+    cmd = mutation_check_command("mypkg", tests_dir="spec")
+    assert cmd == "mutmut run --paths-to-mutate=mypkg --tests-dir=spec"
+
+
+def test_mutation_check_command_quotes_paths():
+    cmd = mutation_check_command("my pkg")
+    assert "--paths-to-mutate='my pkg'" in cmd
+
+
+def test_mutation_check_command_never_passes_ci_flag():
+    # --CI was verified live to make mutmut's exit code ignore real survivors
+    # (a run with 3 actual survivors still exited 0) — must never appear here.
+    cmd = mutation_check_command("mypkg", tests_dir="tests")
+    assert "--CI" not in cmd
+
+
+def test_mutation_check_command_rejects_empty_path():
+    with pytest.raises(ValueError, match="paths_to_mutate"):
+        mutation_check_command("")

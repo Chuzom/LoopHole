@@ -145,6 +145,45 @@ def coverage_check_command(min_percent: int, target: str = ".",
         pytest_args, shlex.quote(target), min_percent)
 
 
+def mutation_check_command(paths_to_mutate: str, tests_dir: Optional[str] = None) -> str:
+    """Build a hard-verifier command: does mutation testing find ZERO
+    surviving mutants in ``paths_to_mutate``? (ROADMAP E3.3.)
+
+    Requires ``mutmut`` (``pip install "mutmut>=2.4,<3"`` — pinned below 3.x:
+    mutmut 3.3.1 segfaulted on every single mutant in live testing here,
+    while 2.5.1 worked correctly; loophole inspects your repo, it doesn't
+    install dependencies for you, but it shouldn't recommend a version it
+    hasn't actually seen run).
+
+    Deliberately does NOT pass ``--CI``: that flag was verified live to make
+    mutmut's own exit code report only "did mutmut run without crashing," not
+    "were all mutants killed" — a real run with 3 real survivors still
+    exited 0 under --CI. The bare ``mutmut run`` exit code is what actually
+    reflects the kill rate: non-zero the moment anything survives, exactly
+    the "hard verifier, exit 0 = done" contract this needs to satisfy.
+
+    v1 is intentionally binary (every mutant killed, or fail) — no partial
+    kill-rate threshold, matching mutmut's own default semantics rather than
+    adding a percentage-parsing surface that could itself drift from reality.
+
+    Known platform gap: mutmut unconditionally opens a PTY (``os.openpty()``)
+    to stream test output on every POSIX platform. Verified live: this raises
+    ``PermissionError`` under loophole's macOS Seatbelt sandbox, which only
+    allowlists fixed devices (``/dev/tty`` etc.), not allocating a fresh PTY
+    pair — so this verifier currently only works under Linux (bubblewrap's
+    minimal ``/dev`` includes PTY support by convention). Not something
+    loophole can quietly work around: granting PTY allocation would be a real
+    sandbox-policy expansion made for one third-party tool's convenience, not
+    a decision to make casually.
+    """
+    if not paths_to_mutate or not paths_to_mutate.strip():
+        raise ValueError("paths_to_mutate must be a non-empty path")
+    parts = ["mutmut", "run", "--paths-to-mutate={}".format(shlex.quote(paths_to_mutate))]
+    if tests_dir:
+        parts.append("--tests-dir={}".format(shlex.quote(tests_dir)))
+    return " ".join(parts)
+
+
 class ContractError(ValueError):
     """Raised when a Goal Contract is invalid (e.g. has no way to define done)."""
 
