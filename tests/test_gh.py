@@ -89,6 +89,25 @@ def test_find_leaked_secrets_ignores_short_values():
     assert gh.find_leaked_secrets("ab is a short string", env=env) == []
 
 
+# ---- redact_leaked_secrets() ---------------------------------------------------
+
+def test_redact_leaked_secrets_replaces_the_value():
+    env = {"ANTHROPIC_API_KEY": "sk-supersecretvalue123456"}
+    dirty = "oops the key is sk-supersecretvalue123456 right there"
+    redacted, leaked = gh.redact_leaked_secrets(dirty, env=env)
+    assert leaked == ["ANTHROPIC_API_KEY"]
+    assert "sk-supersecretvalue123456" not in redacted
+    assert "[REDACTED:ANTHROPIC_API_KEY]" in redacted
+
+
+def test_redact_leaked_secrets_passes_clean_text_through_unchanged():
+    env = {"ANTHROPIC_API_KEY": "sk-supersecretvalue123456"}
+    clean = "everything looks fine, no leak here"
+    redacted, leaked = gh.redact_leaked_secrets(clean, env=env)
+    assert leaked == []
+    assert redacted == clean
+
+
 # ---- render_comment_body() ----------------------------------------------------
 
 def test_render_comment_body_shape():
@@ -252,3 +271,68 @@ def test_run_comment_end_to_end_posts_comment_and_check_run(
     assert "✅" in fake_github.posted[0]["body"]
     assert len(fake_github.check_runs) == 1
     assert fake_github.check_runs[0]["conclusion"] == "success"
+
+
+# ---- regression: a secret-shaped leak never reaches JSON/comment/check-run ----
+#
+# ROADMAP_EXECUTION.md step 3. The most realistic leak vector isn't a verifier's
+# raw stdout (report.to_json() only ever exposes a filtered `failures` subset,
+# never raw output) — it's a user goal string that happens to embed a real
+# secret value by mistake. That flows straight into result["goal"] and
+# result["residual_risk_text"], so it exercises the actual JSON schema, not a
+# contrived path.
+
+_FAKE_SECRET = "sk-should-never-leak-9f8e7d6c5b4a"
+
+
+def test_run_json_file_redacts_a_secret_leaked_via_the_goal_text(monkeypatch, tmp_path):
+    monkeypatch.setenv("FAKE_DEMO_API_KEY", _FAKE_SECRET)
+    tasks = [{"id": "t1", "description": "noop", "depends_on": [], "reads": [], "writes": ["x.txt"]}]
+    monkeypatch.setattr("loophole.cli.make_provider", lambda spec: _FakePlanner(tasks))
+    ws = _git_ws()
+    db = os.path.join(str(tmp_path), "state.db")
+    json_path = os.path.join(str(tmp_path), "result.json")
+    r = CliRunner().invoke(main, [
+        "run", "fix the outage related to " + _FAKE_SECRET,
+        "--verify", "true", "--workspace", ws,
+        "--executor-command", "python3 -c \"open('x.txt','w').write('x')\"",
+        "--skip-critique", "--no-watch", "--max-rounds", "2",
+        "--db", db, "--json-file", json_path,
+    ])
+    assert r.exit_code == 0, r.output
+    assert "WARNING" in r.output and "FAKE_DEMO_API_KEY" in r.output
+    raw = open(json_path).read()
+    assert _FAKE_SECRET not in raw
+    assert "[REDACTED:FAKE_DEMO_API_KEY]" in raw
+    data = json.loads(raw)
+    assert _FAKE_SECRET not in data["goal"]
+
+
+def test_run_comment_redacts_a_secret_leaked_via_the_goal_text(
+        fake_github, monkeypatch, tmp_path):
+    monkeypatch.setenv("FAKE_DEMO_API_KEY", _FAKE_SECRET)
+    tasks = [{"id": "t1", "description": "noop", "depends_on": [], "reads": [], "writes": ["x.txt"]}]
+    monkeypatch.setattr("loophole.cli.make_provider", lambda spec: _FakePlanner(tasks))
+    event = {"pull_request": {"number": 12, "head": {"sha": "deadbeef"}}}
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps(event))
+    monkeypatch.setenv("GITHUB_TOKEN", "tok")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "Chuzom/loophole")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+
+    ws = _git_ws()
+    db = os.path.join(str(tmp_path), "state.db")
+    r = CliRunner().invoke(main, [
+        "run", "fix the outage related to " + _FAKE_SECRET,
+        "--verify", "true", "--workspace", ws,
+        "--executor-command", "python3 -c \"open('x.txt','w').write('x')\"",
+        "--skip-critique", "--comment", "--no-watch", "--max-rounds", "2", "--db", db,
+    ])
+    assert r.exit_code == 0, r.output
+    # posted anyway (redacted upstream, so _post_pr_feedback's own belt-and-
+    # suspenders check now finds nothing left to refuse on)
+    assert len(fake_github.posted) == 1
+    assert _FAKE_SECRET not in fake_github.posted[0]["body"]
+    assert "[REDACTED:FAKE_DEMO_API_KEY]" in fake_github.posted[0]["body"]
+    assert len(fake_github.check_runs) == 1
+    assert _FAKE_SECRET not in json.dumps(fake_github.check_runs[0])

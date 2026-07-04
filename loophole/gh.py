@@ -120,6 +120,29 @@ def create_check_run(repo: str, sha: str, token: str, name: str, conclusion: str
     return _request("POST", "{}/repos/{}/check-runs".format(API, repo), token, payload)
 
 
+def redact_leaked_secrets(text: str,
+                          env: Optional[Dict[str, str]] = None) -> "tuple[str, List[str]]":
+    """Defense in depth for ANY user-facing output (JSON, PR comment, Check Run
+    summary): replace any secret-shaped env-var VALUE found verbatim in `text`
+    with a placeholder, returning (redacted_text, names_redacted).
+
+    Verifiers already run with secrets scrubbed from their environment
+    (sandbox.scrub_env), so the names list should always come back empty — a
+    non-empty result means something upstream leaked (e.g. a verifier's own
+    stdout/traceback echoed a secret an executor was explicitly handed via
+    --executor-secret) and reached output that wasn't supposed to carry it.
+    """
+    from .sandbox import _SECRET_RE
+    env = os.environ if env is None else env
+    redacted = text
+    leaked = []
+    for k, v in env.items():
+        if v and len(v) >= 6 and _SECRET_RE.search(k) and v in redacted:
+            redacted = redacted.replace(v, "[REDACTED:{}]".format(k))
+            leaked.append(k)
+    return redacted, leaked
+
+
 def find_leaked_secrets(text: str, env: Optional[Dict[str, str]] = None) -> List[str]:
     """Defense in depth before posting anything to GitHub: return the names of
     env vars whose secret-shaped VALUE appears verbatim in `text`.
@@ -128,13 +151,7 @@ def find_leaked_secrets(text: str, env: Optional[Dict[str, str]] = None) -> List
     (sandbox.scrub_env), so this should always come back empty — a non-empty
     result means something upstream leaked and the caller must refuse to post.
     """
-    from .sandbox import _SECRET_RE
-    env = os.environ if env is None else env
-    leaked = []
-    for k, v in env.items():
-        if v and len(v) >= 6 and _SECRET_RE.search(k) and v in text:
-            leaked.append(k)
-    return leaked
+    return redact_leaked_secrets(text, env)[1]
 
 
 def render_comment_body(result: Dict[str, Any]) -> str:

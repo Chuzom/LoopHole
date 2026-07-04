@@ -662,7 +662,20 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
                                 color=sys.stdout.isatty()))
     if emit_json or json_file or comment:
         from .report import to_json
+        from .gh import redact_leaked_secrets
         result = to_json(contract, outcome, store, goal_id)
+        # Defense in depth (S1/secret-scrub): verifiers already run with secrets
+        # scrubbed from their environment, so this should always be a no-op — a
+        # non-empty `leaked` means something upstream (e.g. a verifier echoing
+        # a secret an executor was explicitly handed via --executor-secret)
+        # reached JSON/PR-comment/Check-Run output that must never carry it.
+        redacted_raw, leaked = redact_leaked_secrets(json.dumps(result, indent=2))
+        if leaked:
+            _say("WARNING: run output looked like it contained a secret value "
+                 "({}) and was redacted before being written/posted anywhere. "
+                 "This should never happen; investigate before trusting this "
+                 "run's automation.".format(", ".join(leaked)))
+            result = json.loads(redacted_raw)
         if emit_json:
             click.echo()
             click.echo(json.dumps(result, indent=2))
