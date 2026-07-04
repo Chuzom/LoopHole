@@ -53,7 +53,7 @@ where = ["."]
 include = ["loophole*"]
 
 [tool.setuptools.package-data]
-loophole = ["templates/*.json", "schemas/*.json"]
+loophole = ["templates/*.json", "schemas/*.json", "rubrics/*.txt"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

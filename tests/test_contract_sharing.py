@@ -12,7 +12,7 @@ from click.testing import CliRunner
 from loophole.cli import main
 from loophole.contract import GoalContract, Verifier, VerifierKind
 from loophole.initializer import (list_templates, load_template_raw, load_contract,
-                                  CONTRACT_FILENAME)
+                                  list_rubrics, load_rubric, CONTRACT_FILENAME)
 
 
 # ---- templates -------------------------------------------------------------
@@ -28,6 +28,30 @@ def test_unknown_template_raises_with_choices():
     with pytest.raises(ValueError) as e:
         load_template_raw("does-not-exist")
     assert "python-lib" in str(e.value)
+
+
+# ---- rubric library (ROADMAP E3.3 — LLM-judge soft verifiers) --------------
+
+def test_bundled_rubrics_present_and_nonempty():
+    names = list_rubrics()
+    assert {"no-stub-implementations", "no-hardcoded-secrets",
+            "no-silent-error-swallowing", "matches-goal-scope"} <= set(names)
+    for n in names:
+        text = load_rubric(n)
+        assert text.strip()   # never an empty/whitespace-only rubric
+
+
+def test_unknown_rubric_raises_with_choices():
+    with pytest.raises(ValueError) as e:
+        load_rubric("does-not-exist")
+    assert "no-hardcoded-secrets" in str(e.value)
+
+
+def test_goal_scoped_rubric_carries_a_placeholder():
+    # matches-goal-scope is meant to be filled in with the run's actual goal
+    # by the CLI (str.replace, not str.format — rubric text may contain other
+    # literal braces safely).
+    assert "{goal}" in load_rubric("matches-goal-scope")
 
 
 # ---- URL loading (acceptance-spec-as-code is shareable) --------------------
@@ -60,6 +84,18 @@ def test_cli_init_from_template():
 def test_cli_list_templates():
     r = CliRunner().invoke(main, ["init", "--list-templates"])
     assert r.exit_code == 0 and "human-reviewed" in r.output
+
+
+def test_cli_list_rubrics():
+    r = CliRunner().invoke(main, ["run", "--list-rubrics"])
+    assert r.exit_code == 0 and "no-hardcoded-secrets" in r.output
+
+
+def test_cli_unknown_rubric_is_a_usage_error():
+    r = CliRunner().invoke(main, ["run", "some goal",
+                                  "--verify-rubric", "does-not-exist"])
+    assert r.exit_code == 2, r.output
+    assert "--verify-rubric" in r.output
 
 
 def test_cli_contract_validate_and_show(tmp_path):

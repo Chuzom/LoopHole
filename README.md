@@ -163,6 +163,9 @@ loophole run "<goal>" --protect "tests/**" --expect-test-delta 0   # lock the su
 loophole run "<goal>" --verify "pytest -q" --verify-http http://localhost:8000/health   # tests AND a live health check — composable, both must pass
 loophole init --template http-service           # starter contract for that pattern
 loophole run "<goal>" --verify-coverage 80 --verify-coverage-target mypkg   # hard-fail unless pytest-cov reports >= 80% coverage of mypkg
+loophole run --list-rubrics                     # bundled LLM-judge rubrics (no-stub-implementations, no-hardcoded-secrets, ...)
+loophole run "<goal>" --verify "pytest -q" --verify-rubric no-stub-implementations   # tests pass AND a judge vetoes placeholder code
+loophole init --template rubric-guarded         # starter contract composing a hard verifier with rubric vetoes
 loophole contract validate loophole.json        # validate / show a contract (path or URL)
 loophole registry list                            # named, shareable acceptance specs
 loophole registry add team-default ./loophole.json   # publish a spec; reuse by name

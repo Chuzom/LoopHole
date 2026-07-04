@@ -16,7 +16,8 @@ from .contract import (GoalContract, Verifier, VerifierKind, ContractError,
 from . import registry
 from .initializer import (CONTRACT_FILENAME, detect_contract, write_starter,
                           load_contract, load_template_raw,
-                          list_templates as _list_templates)
+                          list_templates as _list_templates,
+                          list_rubrics as _list_rubrics, load_rubric)
 from .audit import render_audit, render_runs
 from .watch import render_frame, run_watch
 from .loop import Roles, LoopConfig, run_goal
@@ -486,6 +487,14 @@ def contract_show(path: str) -> None:
 @click.option("--verify-coverage-target", default=".", metavar="PACKAGE",
               help="Package/module path passed to --cov for --verify-coverage "
                    "(default: '.').")
+@click.option("--verify-rubric", default=None, metavar="NAME",
+              help="Add an LLM-judge soft verifier from the bundled rubric library "
+                   "(see --list-rubrics). A soft verifier can only VETO a hard pass, "
+                   "never grant completion on its own — composable with "
+                   "--verify/--verify-http/--verify-coverage. If none of those are "
+                   "also given, a human checkpoint is added alongside it so the "
+                   "contract can still grant.")
+@click.option("--list-rubrics", is_flag=True, help="List bundled rubrics and exit.")
 @click.option("--skip-critique", is_flag=True, help="Skip plan critic + verifier adversary.")
 @click.option("--comment", is_flag=True,
               help="Post/update a sticky PR comment with the Residual-Risk Report and "
@@ -506,6 +515,7 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
         verify_http: Optional[str], verify_http_status: int, verify_http_timeout: int,
         verify_http_retries: int, verify_http_retry_delay: int,
         verify_coverage: Optional[int], verify_coverage_target: str,
+        verify_rubric: Optional[str], list_rubrics: bool,
         skip_critique: bool, comment: bool,
         db: Optional[str]) -> None:
     """Run a goal until its acceptance contract passes.
@@ -513,6 +523,10 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
     Provide a GOAL with flags, or load a contract file with --contract. With no
     GOAL and a ./loophole.json present, that file is auto-loaded (from `init`).
     """
+    if list_rubrics:
+        for name in _list_rubrics():
+            click.echo(name)
+        return
     # Auto-discover ./loophole.json when no goal and no explicit contract given.
     if contract_path is None and goal is None and os.path.exists(CONTRACT_FILENAME):
         contract_path = CONTRACT_FILENAME
@@ -558,6 +572,15 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
                 raise UsageError("--verify-coverage: {}".format(e))
             verifiers.append(Verifier(kind=VerifierKind.HARD, command=cov_cmd,
                                       protected_paths=list(protect)))
+        if verify_rubric:
+            try:
+                rubric_text = load_rubric(verify_rubric).replace("{goal}", goal)
+            except ValueError as e:
+                raise UsageError("--verify-rubric: {}".format(e))
+            verifiers.append(Verifier(kind=VerifierKind.SOFT, rubric=rubric_text))
+        # NOTE: verify_rubric never suppresses this fallback on its own — a soft
+        # verifier can only VETO, so a rubric-only run still needs a human (or
+        # hard) verifier able to GRANT, or GoalContract.validate() rejects it.
         if human or not (verify_cmd or verify_http or verify_coverage is not None):
             verifiers.append(Verifier(kind=VerifierKind.HUMAN,
                                       prompt="Does the result satisfy: " + goal + "?"))

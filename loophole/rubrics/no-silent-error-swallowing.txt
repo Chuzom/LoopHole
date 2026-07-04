@@ -1,0 +1,8 @@
+Veto if new or changed code catches an exception and silently discards it:
+a bare `except:` or `except Exception:` whose body is only `pass`, only a
+comment, or only a log line with no re-raise, no fallback behavior, and no
+surfacing of the failure to the caller. Do NOT veto exception handling that
+logs AND re-raises, that returns a clearly-documented default/fallback value,
+or that is scoped to a specific, expected exception type with a real
+recovery action. When the handling is deliberate and visible rather than a
+silent no-op, do not veto.

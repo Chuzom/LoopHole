@@ -1,0 +1,9 @@
+The stated goal is: {goal}
+
+Veto if the change set clearly does substantial work that is unrelated to
+this goal: a large unrelated refactor, an unrelated feature bolted on,
+or file changes with no plausible connection to the goal. Do NOT veto
+incidental, small, clearly-necessary changes the goal implies (e.g. updating
+an import, a config entry, or a test fixture touched in service of the goal).
+When a change is plausibly in service of the goal, even indirectly, do not
+veto.

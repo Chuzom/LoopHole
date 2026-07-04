@@ -296,6 +296,26 @@ def load_template_raw(name: str) -> str:
     return raw
 
 
+RUBRICS_DIR = os.path.join(os.path.dirname(__file__), "rubrics")
+
+
+def list_rubrics() -> List[str]:
+    """Names of the bundled LLM-judge rubrics (without the .txt extension)."""
+    try:
+        return sorted(f[:-4] for f in os.listdir(RUBRICS_DIR) if f.endswith(".txt"))
+    except OSError:
+        return []
+
+
+def load_rubric(name: str) -> str:
+    """Text of a bundled rubric, for a soft (LLM-judge) verifier's `rubric` field."""
+    path = os.path.join(RUBRICS_DIR, name + ".txt")
+    if not os.path.exists(path):
+        raise ValueError("unknown rubric '{}'. Available: {}".format(
+            name, ", ".join(list_rubrics()) or "(none)"))
+    return _read_file(path).strip()
+
+
 def _read_file(path: str) -> str:
     with open(path, "r", encoding="utf-8") as f:
         return f.read()

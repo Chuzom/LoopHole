@@ -1,0 +1,8 @@
+Veto if any function, method, or class presented as finished is actually a
+placeholder: a body that is only `pass`, only `...`, only `raise
+NotImplementedError`, a TODO/FIXME comment standing in for real logic, or a
+function that returns a hardcoded/fake value instead of computing the real
+result it claims to compute. Do NOT veto legitimate abstract methods,
+interface stubs that are clearly documented as such, or partial work that is
+explicitly marked in-progress (e.g. a TODO alongside a real, working
+fallback). Only veto when the snapshot presents incomplete work as complete.

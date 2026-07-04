@@ -20,6 +20,7 @@ CORE_SKIP_FILES = {
     "tests/test_serve.py": "binds local HTTP servers",
     "tests/test_verify_coverage.py": "drives full pytest-cov runs under the OS sandbox",
     "tests/test_verify_http.py": "binds a local HTTP server and drives full runs under the OS sandbox",
+    "tests/test_verify_rubric.py": "drives full runs under the OS sandbox",
     "tests/test_soft_fail_closed.py": "sandbox fail-closed integration behavior",
     "tests/test_swarm_e2e.py": "end-to-end swarm execution",
 }
