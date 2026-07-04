@@ -1,0 +1,18 @@
+{
+  "_help": "Starter contract for a web service: tests pass AND the service actually answers a health check once it's running. The second verifier is the output of `--verify-http http://localhost:8000/health` (see `loophole run --help`) — build it with that flag instead of hand-editing the command below. Edit 'goal' and the URL/port, then: loophole run --contract loophole.json",
+  "goal": "TODO: describe the goal in one sentence (what 'done' means)",
+  "verifiers": [
+    {
+      "kind": "hard",
+      "command": "pytest -q",
+      "expected_test_delta": 0
+    },
+    {
+      "kind": "hard",
+      "command": "i=0; while [ \"$i\" -lt 5 ]; do code=\"$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://localhost:8000/health)\"; [ \"$code\" = \"200\" ] && exit 0; i=$((i+1)); [ \"$i\" -lt 5 ] && sleep 2; done; exit 1",
+      "allow_network": true
+    }
+  ],
+  "allowed_writes": ["src/**", "tests/**"],
+  "protected_paths": [".github/workflows/**", "*.lock", "LICENSE", "loophole.json"]
+}

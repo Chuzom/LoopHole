@@ -11,7 +11,8 @@ import click
 
 from . import __version__
 from .budget import Budget, estimate as estimate_cost
-from .contract import GoalContract, Verifier, VerifierKind, ContractError
+from .contract import (GoalContract, Verifier, VerifierKind, ContractError,
+                       http_check_command)
 from . import registry
 from .initializer import (CONTRACT_FILENAME, detect_contract, write_starter,
                           load_contract, load_template_raw,
@@ -461,6 +462,22 @@ def contract_show(path: str) -> None:
 @click.option("--protect", multiple=True, help="Protected path glob (repeatable).")
 @click.option("--expect-test-delta", default=None, type=int,
               help="Min test-count change vs baseline (anti reward-hacking).")
+@click.option("--verify-http", default=None, metavar="URL",
+              help="Add a health-check hard verifier: does URL return "
+                   "--verify-http-status (default 200)? Composable with --verify — "
+                   "both must pass. Retries a few times a few seconds apart by "
+                   "default (a just-started service, not a bug to work around by hand). "
+                   "Unlike other verifiers, this one is network-ENABLED by design "
+                   "(its whole purpose is a network call) — every other sandbox "
+                   "confinement still applies.")
+@click.option("--verify-http-status", default=200, type=int,
+              help="Expected HTTP status for --verify-http (default 200).")
+@click.option("--verify-http-timeout", default=5, type=int,
+              help="Per-attempt timeout in seconds for --verify-http (default 5).")
+@click.option("--verify-http-retries", default=3, type=int,
+              help="Attempts for --verify-http before giving up (default 3).")
+@click.option("--verify-http-retry-delay", default=2, type=int,
+              help="Seconds between --verify-http retry attempts (default 2).")
 @click.option("--skip-critique", is_flag=True, help="Skip plan critic + verifier adversary.")
 @click.option("--comment", is_flag=True,
               help="Post/update a sticky PR comment with the Residual-Risk Report and "
@@ -477,7 +494,10 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
         critic_model: Optional[str],
         cheap_model: Optional[str], max_parallel: int, max_rounds: int,
         max_cost: float, max_tokens: int, protect: tuple,
-        expect_test_delta: Optional[int], skip_critique: bool, comment: bool,
+        expect_test_delta: Optional[int],
+        verify_http: Optional[str], verify_http_status: int, verify_http_timeout: int,
+        verify_http_retries: int, verify_http_retry_delay: int,
+        skip_critique: bool, comment: bool,
         db: Optional[str]) -> None:
     """Run a goal until its acceptance contract passes.
 
@@ -510,7 +530,19 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
             verifiers.append(Verifier(
                 kind=VerifierKind.HARD, command=verify_cmd,
                 protected_paths=list(protect), expected_test_delta=expect_test_delta))
-        if human or not verify_cmd:
+        if verify_http:
+            try:
+                http_cmd = http_check_command(
+                    verify_http, status=verify_http_status, timeout=verify_http_timeout,
+                    retries=verify_http_retries, retry_delay=verify_http_retry_delay)
+            except ValueError as e:
+                raise UsageError("--verify-http: {}".format(e))
+            # Verifiers run network-denied by default (S1) — this one's entire
+            # purpose is a network call, so it must opt in explicitly or curl
+            # can never reach anything, even localhost.
+            verifiers.append(Verifier(kind=VerifierKind.HARD, command=http_cmd,
+                                      protected_paths=list(protect), allow_network=True))
+        if human or not (verify_cmd or verify_http):
             verifiers.append(Verifier(kind=VerifierKind.HUMAN,
                                       prompt="Does the result satisfy: " + goal + "?"))
         contract = GoalContract(goal=goal, verifiers=verifiers,
