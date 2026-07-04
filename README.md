@@ -417,7 +417,7 @@ detailed, sequenced execution plan lives in **[`ROADMAP.md`](ROADMAP.md)**; the 
 - [ ] Hosted control-plane (run history, audit, policy, fleet dashboards) — includes a canonical,
       browsable public contract/verifier web index; until then, `registry add-source <url>` lets any
       team self-host a shareable index today (see `ROADMAP.md` E3.2 for the scoping rationale)
-- [ ] bubblewrap netns egress scoping (Linux parity with the macOS proxy)
+- [ ] bubblewrap netns egress scoping (Linux parity with the macOS proxy) — see [the design spike](NETNS_EGRESS_DESIGN.md): needs slirp4netns + PID-synchronized iptables, real Linux hardware to verify correctly, contributions welcome
 
 ## Contributing
 
