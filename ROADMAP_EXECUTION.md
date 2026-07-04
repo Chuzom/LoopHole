@@ -10,7 +10,7 @@ checklist for the next execution pass.
 |---|---|---|---|
 | 1 | Split CI into a core profile and a privileged sandbox/integration path. | Done | `LOOPHOLE_TEST_PROFILE=core pytest -q` passes locally; `.github/workflows/ci.yml` uses the core profile; `.github/workflows/sandbox.yml` remains the full bwrap proof. |
 | 2 | Dogfood the GitHub Action/check/comment path on a real PR. | Not started | A real PR gets one sticky Loophole comment and a red/green check run from `GITHUB_TOKEN`. |
-| 3 | Add secret-scrub regression coverage for JSON and PR comments. | Not started | A run with fake secret env vars emits no secret-shaped values in JSON, comments, or check summaries. |
+| 3 | Add secret-scrub regression coverage for JSON and PR comments. | Done | Writing the regression test surfaced a real gap: `--json`/`--json-file` had no scrub check at all (only `--comment` did). Fixed with `gh.redact_leaked_secrets()` applied once upstream of all three output surfaces; `tests/test_gh.py` covers a fake secret leaked via the goal string end to end. |
 | 4 | Harden Action onboarding and release packaging. | Not started | README and generated workflow use `uses: Chuzom/loophole@v1`; the action self-test runs in CI. |
 | 5 | Expand richer verifier adapters after the HTTP helper. | Partly done | HTTP health-check, coverage-threshold, and LLM-judge rubric library all shipped with template contracts + tests; mutation testing remains open. |
 
@@ -23,7 +23,7 @@ checklist for the next execution pass.
 | P1 PR path | Stable JSON report. | Done locally | Validate schema output from an actual Action run. |
 | P1 PR path | GitHub Action. | Mostly done | Dogfood on a real repository PR and capture failure modes. |
 | P1 PR path | Sticky PR comment and Check Run. | Done locally | Run live against GitHub REST with `GITHUB_TOKEN`; verify update-in-place behavior. |
-| P1 PR path | Secret scrub across public outputs. | Not started | Add tests for JSON, PR comment Markdown, and Check Run summaries. |
+| P1 PR path | Secret scrub across public outputs. | Done | JSON, PR comment Markdown, and Check Run summaries all redact via one shared `gh.redact_leaked_secrets()` call upstream of all three; regression-tested in `tests/test_gh.py`. |
 | P1 Onboarding | `loophole init` scaffolds contract plus Action workflow. | Mostly done | Switch generated CI to the Action one-liner once release packaging is ready. |
 | P2 Executors | Codex, Claude Code, aider adapters. | Partly done | Prioritize Cursor/Composer and OpenHands only after P1 dogfood is stable. |
 | P3 Contracts | CI inference and verifier registry. | Partly done | `--from-ci` inference and the local+remote registry (`registry add-source`) are done and tested; a loophole-operated hosted web index is explicitly deferred to Phase 4 (ROADMAP.md E3.2 scope note — needs a hosting/ops decision, not a CLI change). |
