@@ -1,7 +1,8 @@
 # Design spike: bubblewrap netns egress scoping (Linux parity with macOS)
 
 **Status:** not implemented — a research spike, written up so a contributor
-with real Linux hardware can pick it up with a head start. See
+with real Linux hardware can pick it up with a head start. Tracked in
+[issue #2](https://github.com/Chuzom/loophole/issues/2); see
 [ROADMAP.md](ROADMAP.md) / [README.md](README.md#roadmap) for where this sits.
 
 ## The gap today
