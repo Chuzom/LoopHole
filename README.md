@@ -336,6 +336,14 @@ executing the candidate against arbitrary HARD checks in an isolated sandbox
 recent SWE-bench Pro study](https://www.marktechpost.com/2026/06/26/cursor-study-finds-reward-hacking-inflates-coding-agent-benchmark-scores-on-swe-bench-pro/))
 that a static rule set alone can't see.
 
+**What about GitHub's own [Agentic Workflows](https://github.github.com/gh-aw/)?**
+Different layer, not a competitor — it secures the *agent's own runtime*
+(sandboxed, firewalled, a schema-gated `safe-outputs` policy on what
+actions it can even propose). It has no concept of running your test
+suite or re-verifying a merge. See
+[loophole and gh-aw](blog/loophole-and-github-agentic-workflows.md) for
+the honest breakdown and a recipe for running both together.
+
 ```yaml
 # .github/workflows/loophole-gate.yml
 on: [pull_request]
@@ -402,6 +410,7 @@ audited by a multi-model council; we publish our own findings.
 detailed, sequenced execution plan lives in **[`ROADMAP.md`](ROADMAP.md)**; the headline bets:
 
 - [ ] First-class executor adapters for frontier coding agents (Cursor, OpenHands, Devin — codex/aider/claude-code already ship)
+- [x] Position against GitHub's own Agentic Workflows — see [loophole and gh-aw](blog/loophole-and-github-agentic-workflows.md): complementary (it secures the agent's runtime; loophole verifies what the agent produced), with a documented recipe for running both together
 - [ ] Hosted control-plane (run history, audit, policy, fleet dashboards) — includes a canonical,
       browsable public contract/verifier web index; until then, `registry add-source <url>` lets any
       team self-host a shareable index today (see `ROADMAP.md` E3.2 for the scoping rationale)
