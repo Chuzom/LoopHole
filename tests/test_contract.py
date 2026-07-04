@@ -9,6 +9,7 @@ from loophole.contract import (
     GoalContract,
     Verifier,
     VerifierKind,
+    coverage_check_command,
     http_check_command,
 )
 
@@ -113,3 +114,30 @@ def test_http_check_command_quotes_url():
 def test_http_check_command_validates_numeric_inputs(kwargs, message):
     with pytest.raises(ValueError, match=message):
         http_check_command("http://example.test", **kwargs)
+
+
+def test_coverage_check_command_builds_pytest_cov_invocation():
+    cmd = coverage_check_command(80, target="mypkg", pytest_args="-q -x")
+    assert cmd == "pytest -q -x --cov=mypkg --cov-fail-under=80"
+
+
+def test_coverage_check_command_defaults():
+    cmd = coverage_check_command(50)
+    assert cmd == "pytest -q --cov=. --cov-fail-under=50"
+
+
+def test_coverage_check_command_quotes_target():
+    cmd = coverage_check_command(50, target="my pkg")
+    assert "--cov='my pkg'" in cmd
+
+
+@pytest.mark.parametrize(
+    ("min_percent", "message"),
+    [
+        (-1, "min_percent"),
+        (101, "min_percent"),
+    ],
+)
+def test_coverage_check_command_validates_min_percent(min_percent, message):
+    with pytest.raises(ValueError, match=message):
+        coverage_check_command(min_percent)

@@ -1,0 +1,17 @@
+{
+  "_help": "Starter contract for a coverage gate: the suite must pass AND cover at least a set percentage of a package. The second verifier is the output of `--verify-coverage 80 --verify-coverage-target src` (see `loophole run --help`) — build it with that flag instead of hand-editing the command below. Requires pytest-cov (pip install pytest-cov). Edit 'goal', the target package, and the threshold, then: loophole run --contract loophole.json",
+  "goal": "TODO: describe the goal in one sentence (what 'done' means)",
+  "verifiers": [
+    {
+      "kind": "hard",
+      "command": "pytest -q",
+      "expected_test_delta": 0
+    },
+    {
+      "kind": "hard",
+      "command": "pytest -q --cov=src --cov-fail-under=80"
+    }
+  ],
+  "allowed_writes": ["src/**", "tests/**"],
+  "protected_paths": [".github/workflows/**", "*.lock", "LICENSE", "loophole.json"]
+}

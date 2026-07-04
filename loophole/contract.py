@@ -123,6 +123,28 @@ def http_check_command(url: str, status: int = 200, timeout: int = 5,
     return "; ".join(parts)
 
 
+def coverage_check_command(min_percent: int, target: str = ".",
+                           pytest_args: str = "-q") -> str:
+    """Build a hard-verifier command: does the suite achieve at least
+    ``min_percent`` coverage of ``target``? (ROADMAP E3.3.)
+
+    Requires ``pytest-cov`` (``pip install pytest-cov``) — loophole inspects
+    your repo, it doesn't install dependencies for you; a repo without it
+    will fail with pytest's own "unrecognized arguments: --cov" error, which
+    is a reasonably clear signal of what's missing.
+
+    Verified live against a real pytest-cov run: ``--cov-fail-under`` makes
+    pytest's OWN exit code reflect the coverage threshold, independent of
+    whether the tests themselves passed — exactly the "hard verifier, exit
+    0 = done" contract this command needs to satisfy.
+    """
+    min_percent = int(min_percent)
+    if not (0 <= min_percent <= 100):
+        raise ValueError("min_percent must be between 0 and 100")
+    return "pytest {} --cov={} --cov-fail-under={}".format(
+        pytest_args, shlex.quote(target), min_percent)
+
+
 class ContractError(ValueError):
     """Raised when a Goal Contract is invalid (e.g. has no way to define done)."""
 

@@ -12,7 +12,7 @@ import click
 from . import __version__
 from .budget import Budget, estimate as estimate_cost
 from .contract import (GoalContract, Verifier, VerifierKind, ContractError,
-                       http_check_command)
+                       http_check_command, coverage_check_command)
 from . import registry
 from .initializer import (CONTRACT_FILENAME, detect_contract, write_starter,
                           load_contract, load_template_raw,
@@ -478,6 +478,14 @@ def contract_show(path: str) -> None:
               help="Attempts for --verify-http before giving up (default 3).")
 @click.option("--verify-http-retry-delay", default=2, type=int,
               help="Seconds between --verify-http retry attempts (default 2).")
+@click.option("--verify-coverage", default=None, type=int, metavar="PERCENT",
+              help="Add a coverage-threshold hard verifier: does the suite reach "
+                   "at least PERCENT coverage of --verify-coverage-target? "
+                   "Composable with --verify/--verify-http. Requires pytest-cov "
+                   "in your project (loophole doesn't install it for you).")
+@click.option("--verify-coverage-target", default=".", metavar="PACKAGE",
+              help="Package/module path passed to --cov for --verify-coverage "
+                   "(default: '.').")
 @click.option("--skip-critique", is_flag=True, help="Skip plan critic + verifier adversary.")
 @click.option("--comment", is_flag=True,
               help="Post/update a sticky PR comment with the Residual-Risk Report and "
@@ -497,6 +505,7 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
         expect_test_delta: Optional[int],
         verify_http: Optional[str], verify_http_status: int, verify_http_timeout: int,
         verify_http_retries: int, verify_http_retry_delay: int,
+        verify_coverage: Optional[int], verify_coverage_target: str,
         skip_critique: bool, comment: bool,
         db: Optional[str]) -> None:
     """Run a goal until its acceptance contract passes.
@@ -542,7 +551,14 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
             # can never reach anything, even localhost.
             verifiers.append(Verifier(kind=VerifierKind.HARD, command=http_cmd,
                                       protected_paths=list(protect), allow_network=True))
-        if human or not (verify_cmd or verify_http):
+        if verify_coverage is not None:
+            try:
+                cov_cmd = coverage_check_command(verify_coverage, target=verify_coverage_target)
+            except ValueError as e:
+                raise UsageError("--verify-coverage: {}".format(e))
+            verifiers.append(Verifier(kind=VerifierKind.HARD, command=cov_cmd,
+                                      protected_paths=list(protect)))
+        if human or not (verify_cmd or verify_http or verify_coverage is not None):
             verifiers.append(Verifier(kind=VerifierKind.HUMAN,
                                       prompt="Does the result satisfy: " + goal + "?"))
         contract = GoalContract(goal=goal, verifiers=verifiers,
