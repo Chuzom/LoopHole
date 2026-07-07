@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # is `loophole-agents` (the bare `loophole` name was already taken). Install with
 # `pip install loophole-agents`, then `import loophole` / run `loophole`.
 name = "loophole-agents"
-version = "0.1.0"
+version = "0.1.1"
 description = "The acceptance layer for autonomous coding — 'CI for AI agents'. A swarm works until a verifier PROVES the goal is done."
 readme = "README.md"
 requires-python = ">=3.9"

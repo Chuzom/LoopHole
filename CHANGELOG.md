@@ -6,6 +6,23 @@ All notable changes to loophole are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-07-07
+
+### Security
+- Routed GitHub Action inputs through `env:` and quoted shell variables to close a shell-injection vector.
+- Added `SECURITY.md` with responsible-disclosure guidance via GitHub private advisories.
+
+### Fixed
+- Replaced the hardcoded personal MCP command path in `.mcp.json` with portable `loophole` PATH resolution.
+- Corrected the README tests badge from `353 passing` to `353 total` and updated the badge-invariant test.
+
+### Changed
+- Updated the action self-test job to install the checked-out package and run report-only against the current action plumbing.
+
+### Documentation
+- Documented Ollama installation, model pulling, and the hosted-provider quickstart path.
+- Added a callout that `claude-code` and `codex` executors run unsandboxed by default and can be re-confined with `--executor-sandboxed`.
+
 ## [0.1.0] — initial public release
 
 The core acceptance-layer architecture, ratified by a multi-model council
