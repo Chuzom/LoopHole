@@ -84,13 +84,21 @@ When the check fails, loophole re-plans, retries, and routes around dead ends �
 ## 60-second quickstart
 
 ```bash
-pip install loophole-agents   # zero-config: works with local Ollama out of the box
+pip install loophole-agents
+
+# Loophole needs a model. Install Ollama from https://ollama.com, then pull one:
+ollama pull qwen2.5-coder:7b  # smaller than the ~18GB default: qwen3-coder:30b
+
+# Hosted providers work too via ANTHROPIC_API_KEY or OPENAI_API_KEY.
 
 # point it at a goal + a way to check "done":
 loophole run "Create add.py with add(a,b) returning a+b" \
+  --executor-model ollama:qwen2.5-coder:7b \
   --verify 'python3 -c "from add import add; assert add(2,3)==5; print(\"ok\")"' \
   --workspace ./out
 ```
+
+Use `ollama pull` for whichever local model you pass with `--executor-model`.
 
 Working from a clone instead (contributing, or want an editable install)? See
 [CONTRIBUTING.md](CONTRIBUTING.md#dev-setup) — `pip install -e '.[dev]'` in place
@@ -158,6 +166,10 @@ Because the verifier *is* the goalpost, loophole defends it:
 - **No fake "done"** — if an agent claims completion but changed nothing, it's rejected.
 - **Secrets never reach verifiers** — your `ANTHROPIC_API_KEY` and friends are scrubbed from the subprocess environment.
 - **Scoped egress** — an executor granted network access reaches *only* the hosts you declare (macOS: enforced via a localhost-only jail + a host-allowlisted proxy; denied hosts are 403'd and audited).
+
+> **On sandboxing & trust:** Loophole's own file edits are always OS-sandboxed with Seatbelt/bubblewrap, and the verifier boundary always decides "done".
+> The bring-your-own executors `claude-code` and `codex` run unsandboxed by default so they can use your subscription login.
+> Re-confine those executors with `--executor-sandboxed`.
 
 Don't take that list on faith — **[run the reward-hacking gauntlet](gauntlet/README.md)**
 yourself: five real cheats (including the exact test-config-editing pattern a
