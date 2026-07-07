@@ -114,9 +114,11 @@ runs:
 
     - name: Install loophole
       shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
       run: |
-        if [ -n "${{ inputs.version }}" ]; then
-          pip install --quiet "loophole-agents==${{ inputs.version }}"
+        if [ -n "$VERSION" ]; then
+          pip install --quiet "loophole-agents==$VERSION"
         else
           pip install --quiet -U loophole-agents
         fi
@@ -126,7 +128,9 @@ runs:
       if: inputs.goal == ''
       shell: bash
       working-directory: ${{ inputs.workspace }}
-      run: loophole contract validate "${{ inputs.contract }}"
+      env:
+        CONTRACT: ${{ inputs.contract }}
+      run: loophole contract validate "$CONTRACT"
 
     - name: Run loophole
       id: run
@@ -134,21 +138,31 @@ runs:
       working-directory: ${{ inputs.workspace }}
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
+        PLANNER_MODEL: ${{ inputs.planner-model }}
+        EXECUTOR_MODEL: ${{ inputs.executor-model }}
+        MAX_ROUNDS: ${{ inputs.max-rounds }}
+        GOAL: ${{ inputs.goal }}
+        VERIFY: ${{ inputs.verify }}
+        CONTRACT: ${{ inputs.contract }}
+        EXECUTOR: ${{ inputs.executor }}
+        EXECUTOR_COMMAND: ${{ inputs.executor-command }}
+        COMMENT: ${{ inputs.comment }}
+        FAIL_ON: ${{ inputs.fail-on }}
       run: |
         set +e
         RESULT_JSON="${RUNNER_TEMP}/loophole-result.json"
         ARGS=(run --no-watch --json-file "${RESULT_JSON}"
-              --planner-model "${{ inputs.planner-model }}"
-              --executor-model "${{ inputs.executor-model }}"
-              --max-rounds "${{ inputs.max-rounds }}")
-        if [ -n "${{ inputs.goal }}" ]; then
-          ARGS+=("${{ inputs.goal }}" --verify "${{ inputs.verify }}")
+              --planner-model "$PLANNER_MODEL"
+              --executor-model "$EXECUTOR_MODEL"
+              --max-rounds "$MAX_ROUNDS")
+        if [ -n "$GOAL" ]; then
+          ARGS+=("$GOAL" --verify "$VERIFY")
         else
-          ARGS+=(--contract "${{ inputs.contract }}")
+          ARGS+=(--contract "$CONTRACT")
         fi
-        [ -n "${{ inputs.executor }}" ] && ARGS+=(--executor "${{ inputs.executor }}")
-        [ -n "${{ inputs.executor-command }}" ] && ARGS+=(--executor-command "${{ inputs.executor-command }}")
-        [ "${{ inputs.comment }}" = "true" ] && ARGS+=(--comment)
+        [ -n "$EXECUTOR" ] && ARGS+=(--executor "$EXECUTOR")
+        [ -n "$EXECUTOR_COMMAND" ] && ARGS+=(--executor-command "$EXECUTOR_COMMAND")
+        [ "$COMMENT" = "true" ] && ARGS+=(--comment)
 
         loophole "${ARGS[@]}"
         LOOPHOLE_EXIT=$?
@@ -180,7 +194,7 @@ runs:
         if [ "${LOOPHOLE_EXIT}" -eq 2 ]; then
           exit 2
         fi
-        if [ "${{ inputs.fail-on }}" = "never" ]; then
+        if [ "$FAIL_ON" = "never" ]; then
           exit 0
         fi
         exit "${LOOPHOLE_EXIT}"

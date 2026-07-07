@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "loophole": {
-      "command": "/Users/yaliandrona/projects/loophole/.venv/bin/loophole",
+      "command": "loophole",
       "args": ["mcp"]
     }
   }
