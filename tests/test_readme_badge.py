@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_BADGE_RE = re.compile(r"tests-(\d+)%20passing")
+_BADGE_RE = re.compile(r"tests-(\d+)%20(?:passing|total)")
 _COLLECTED_RE = re.compile(r"(\d+) tests? collected")
 _GAUNTLET_BADGE_RE = re.compile(r"reward--hacking-(\d+)%2F(\d+)%20caught")
 
@@ -34,9 +34,9 @@ def test_readme_test_count_badge_matches_actual_collection():
     actual = int(cm.group(1))
 
     assert claimed == actual, (
-        "README's tests badge claims {} passing but {} are actually collected "
+        "README's tests badge claims {} tests but {} are actually collected "
         "— update the badge in README.md (the shields.io URL containing "
-        "'tests-{}%20passing').".format(claimed, actual, claimed)
+        "'tests-{}%20total').".format(claimed, actual, claimed)
     )
 
 

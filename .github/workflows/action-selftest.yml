@@ -64,9 +64,17 @@ jobs:
 
   dogfood:
     runs-on: ubuntu-latest
-    continue-on-error: true    # see header: fails without a reachable model — expected
+    continue-on-error: true    # belt-and-suspenders: never block a PR on the self-test
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      # Test THIS checkout's action + CLI, not the last-published PyPI build — otherwise
+      # the action installs a stale `loophole-agents` that predates flags this action.yml
+      # uses (e.g. --json-file), and the self-test fails on an arg error instead of
+      # exercising the current plumbing. Same-version `pip install -U` in the action is a
+      # no-op over this editable install.
+      - run: pip install --quiet -e .
       - name: Scaffold a template contract to run against
         run: |
           mkdir -p /tmp/dogfood && cd /tmp/dogfood
@@ -79,6 +87,10 @@ jobs:
           verify: "true"
           workspace: /tmp/dogfood
           max-rounds: "1"
+          # No model is reachable on a vanilla runner, so the run ends "not-done" (exit 1).
+          # This job self-tests plumbing, not verification success — report-only so exit 1
+          # is a pass. A real misconfig (exit 2: bad args/contract) still fails the job.
+          fail-on: "never"
       - name: Show what the Action reported
         if: always()
         run: |
