@@ -21,6 +21,18 @@ All notable changes to loophole are documented here. Format follows
   drives the MCP tools (`loophole_run` → poll `loophole_status`) to show live ASCII
   progress inside an agent chat. Templates in `examples/agents/` + an
   `examples/agent-integration.md` guide.
+- **Fast structural-deadlock detection**: when no single task's merge can pass the hard
+  verifier(s), HEAD never advances — previously the run churned to `max_rounds` (up to
+  25) before failing generically. It now emits an advisory after 2 no-merge rounds and
+  PAUSES with an actionable diagnostic after 5 ("no single task's changes pass the hard
+  verifier(s) alone … bundle each source file with its own test, or scope the verifier so
+  a partial merge can pass"). Catches the case degenerate-plan detection misses — a
+  planner that keeps re-splitting the work into structurally different (but still
+  co-dependent) tasks. The R3 merge-gate invariant is unchanged.
+
+### Changed
+- The `plan critic rejected` log line now includes its round number, so a rejection
+  followed by the next round's re-plan+execute can't be misread as "a rejected plan ran".
 
 ### Fixed
 - A human checkpoint with no human reachable (EOF on a non-interactive stdin) now

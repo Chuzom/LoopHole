@@ -32,6 +32,7 @@ _GLYPH = {
     "routing_feedback": "📊",
     "guarded_action": "⚡",
     "human_fail_closed": "?",
+    "merge_gate_deadlock": "⧖",
 }
 
 
