@@ -7,6 +7,7 @@ could NOT prove. This module renders that honest report.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List, Optional
 
 from .contract import GoalContract
@@ -49,7 +50,8 @@ def _next_steps(status: str, verdict: Optional[VerifyVerdict]) -> List[str]:
 def residual_risk_report(contract: GoalContract, verdict: Optional[VerifyVerdict],
                          status: str, rounds_used: int, budget_summary: str,
                          verifier_bypasses: Optional[List[str]] = None,
-                         detail: str = "") -> str:
+                         detail: str = "",
+                         guarded_actions: Optional[List[dict]] = None) -> str:
     lines: List[str] = []
     add = lines.append
     add("=" * 64)
@@ -111,6 +113,21 @@ def residual_risk_report(contract: GoalContract, verdict: Optional[VerifyVerdict
             add("  - {}".format(b))
         add("")
 
+    if guarded_actions:
+        tier = getattr(contract, "privilege_tier", "guarded")
+        n = len(guarded_actions)
+        if tier == "full":
+            # full-privilege mission: don't nag, but never hide it — point to the trail.
+            add("Guarded actions: {} side-effecting action(s) ran under the 'full' "
+                "privilege tier (see `loophole audit`).".format(n))
+            add("")
+        else:
+            add("Guarded actions taken (audit) — side-effecting/irreversible commands "
+                "the swarm ran (allowed under the '{}' tier, recorded here):".format(tier))
+            for ga in guarded_actions:
+                add("  - [{}] {}".format(ga.get("category", "?"), ga.get("command", "")))
+            add("")
+
     steps = _next_steps(status, verdict)
     if steps:
         add("NEXT STEPS:")
@@ -134,8 +151,23 @@ SCHEMA_VERSION = 1
 _BOUNDARY_EVENT_KINDS = {
     "merge_gate_reject", "write_glob_violation", "soft_fail_closed",
     "merge_gate_reconcile", "verifier_bypasses", "executor_network_denied",
-    "auto_protect",
+    "auto_protect", "guarded_action", "human_fail_closed",
 }
+
+
+def collect_guarded_actions(store: Any, goal_id: str) -> List[dict]:
+    """The guarded side-effecting actions recorded during a run (for the report)."""
+    out: List[dict] = []
+    for e in store.events(goal_id):
+        if e["kind"] != "guarded_action":
+            continue
+        raw = e["payload"] if "payload" in e.keys() else None
+        try:
+            p = json.loads(raw) if raw else {}
+        except (ValueError, TypeError):
+            p = {}
+        out.append({"command": p.get("command", ""), "category": p.get("category", "?")})
+    return out
 
 
 def to_json(contract: GoalContract, outcome: Any, store: Any, goal_id: str) -> Dict[str, Any]:

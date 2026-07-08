@@ -188,6 +188,12 @@ class ContractError(ValueError):
     """Raised when a Goal Contract is invalid (e.g. has no way to define done)."""
 
 
+# Privilege tiers, from most to least freedom. Chosen once at mission start; each is a
+# preset over the sandbox/network knobs (see loop.py::privilege_preset). "guarded" is the
+# default and equals loophole's historical posture, so it is non-breaking.
+PRIVILEGE_TIERS = ("full", "guarded", "locked")
+
+
 @dataclass
 class GoalContract:
     """The full, falsifiable specification of a goal."""
@@ -208,11 +214,21 @@ class GoalContract:
     # only builtin verifiers). A module declares its own domain (e.g. "quant") to
     # use module verifier kinds. The two never mix in one contract.
     domain: str = "code"
+    # Privilege tier chosen once at mission start — a preset over the sandbox/network
+    # knobs plus an audit posture. "full" = trusted + network allowed; "guarded"
+    # (default, = today's posture) = OS-sandboxed, network denied-by-default, guarded
+    # side-effecting actions ALLOWED but recorded in the residual-risk report;
+    # "locked" = network denied, reads confined, every merge routed to a human.
+    privilege_tier: str = "guarded"
 
     def validate(self) -> None:
         """Reject any contract that cannot define 'done'."""
         if not self.goal or not self.goal.strip():
             raise ContractError("goal text is required")
+        if self.privilege_tier not in PRIVILEGE_TIERS:
+            raise ContractError(
+                "privilege_tier must be one of {}, got {!r}".format(
+                    sorted(PRIVILEGE_TIERS), self.privilege_tier))
         if not self.verifiers:
             raise ContractError(
                 "a goal with no verifier is rejected: you cannot run-until-done "
@@ -331,6 +347,7 @@ class GoalContract:
                 "max_rounds": self.max_rounds,
                 "timeout_seconds": self.timeout_seconds,
                 "domain": self.domain,
+                "privilege_tier": self.privilege_tier,
             },
             indent=2,
         )
@@ -355,6 +372,7 @@ class GoalContract:
             max_rounds=d.get("max_rounds", 25),
             timeout_seconds=d.get("timeout_seconds", 7200),
             domain=d.get("domain", "code"),
+            privilege_tier=d.get("privilege_tier", "guarded"),
         )
 
     @classmethod

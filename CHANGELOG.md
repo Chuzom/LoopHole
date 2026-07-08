@@ -6,6 +6,26 @@ All notable changes to loophole are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **Privilege tiers**: choose once at mission start how much freedom the swarm gets —
+  `--privileges full|guarded|locked` (or an interactive prompt when a terminal is
+  attached), also a `privilege_tier` field on the Goal Contract. `guarded` (default)
+  equals the historical posture, so it is non-breaking; `locked` denies network,
+  confines reads, and routes completion to a human sign-off.
+- **Guarded-action audit**: side-effecting/irreversible commands the swarm runs
+  (`git push`, `npm publish`/`twine upload`, `gh release`, `docker push`,
+  `kubectl/terraform apply`, cloud deploys, purchases) are detected and recorded as
+  `guarded_action` events, surfaced under "Guarded actions (audit)" in the
+  Residual-Risk Report and in `loophole audit`.
+- **Agent integration**: a `/loophole` slash-command for Claude Code and Codex that
+  drives the MCP tools (`loophole_run` → poll `loophole_status`) to show live ASCII
+  progress inside an agent chat. Templates in `examples/agents/` + an
+  `examples/agent-integration.md` guide.
+
+### Fixed
+- A human checkpoint with no human reachable (EOF on a non-interactive stdin) now
+  PAUSES fail-closed instead of aborting the run or silently completing.
+
 ## [0.1.1] — 2026-07-07
 
 ### Security

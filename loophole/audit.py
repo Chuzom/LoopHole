@@ -30,6 +30,8 @@ _GLYPH = {
     "executor_network_denied": "⛔",
     "auto_protect": "🛡",
     "routing_feedback": "📊",
+    "guarded_action": "⚡",
+    "human_fail_closed": "?",
 }
 
 
@@ -72,6 +74,12 @@ def _summary(kind: str, p: dict) -> str:
         return s
     if kind == "verifier_bypasses":
         return "adversary flagged verifier bypass(es)"
+    if kind == "guarded_action":
+        return "guarded action [{}]: {}".format(
+            p.get("category", "?"), str(p.get("command", ""))[:160])
+    if kind == "human_fail_closed":
+        return "PAUSED for human (sign-off required, none available): {}".format(
+            p.get("reason", ""))[:180]
     # generic: compact the payload
     if p:
         return "; ".join("{}={}".format(k, str(v)[:60]) for k, v in list(p.items())[:3])
