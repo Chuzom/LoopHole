@@ -38,6 +38,9 @@ from .verifier import (VerifyVerdict, VerifierResult, run_command_verifier,
                        check_boundary, check_test_count, parse_pytest,
                        evaluate_soft_verifier)
 
+_DEADLOCK_ADVISE_ROUNDS = 2   # emit an advisory after this many consecutive no-merge rounds
+_DEADLOCK_PAUSE_ROUNDS = 5    # pause fail-closed after this many
+
 
 @dataclass
 class Roles:
@@ -66,7 +69,7 @@ class LoopConfig:
     stall_rounds: int = 3
     degenerate_repeats: int = 3
     exec_max_steps: int = 12
-    shell_timeout: int = 120
+    shell_timeout: int = field(default_factory=lambda: int(os.environ.get("LOOPHOLE_SHELL_TIMEOUT_S", "120")))
     skip_plan_critique: bool = False
     allow_no_git: bool = False     # opt-in to shared-workspace mode when not a git repo
     on_human: Optional[Callable[[str], bool]] = None   # human checkpoint callback
@@ -430,6 +433,7 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
     stall = 0
     seen_plan_hashes: Dict[str, int] = {}
     seen_signatures: Dict[str, int] = {}
+    rounds_without_merge = 0
     feedback: Optional[str] = None
     verdict: Optional[VerifyVerdict] = None
     start_time = time.time()
@@ -442,6 +446,8 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
         if time.time() - start_time > contract.timeout_seconds:
             return _finish(store, goal_id, "paused", rnd, verdict, budget, bypasses,
                            "timeout", say)
+        head_before = integ.head() if integ.is_git else None
+        seq_before = store.events(goal_id)[-1]["seq"] if store.events(goal_id) else 0
         try:
             budget.check()
         except BudgetExceeded as e:
@@ -469,7 +475,7 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
                 crit = critique_plan(roles.critic, contract, planned)
                 if not crit.approved:
                     feedback = "plan critic rejected: " + "; ".join(crit.issues)
-                    say("plan critic rejected plan: {}".format(crit.issues))
+                    say("round {}: plan critic rejected plan: {}".format(rnd + 1, crit.issues))
                     continue
             # N2 fix: namespace task ids per plan round so a replan that reuses
             # the planner's ids (t1, t2, …) can never collide with an existing
@@ -590,6 +596,30 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
         else:
             stall = 0
         prev_score = score
+        advanced = bool(integ.is_git and head_before is not None and integ.head() != head_before)
+        gate_rejects = sum(1 for e in store.events(goal_id)
+                           if e["seq"] > seq_before and e["kind"] == "merge_gate_reject")
+        if advanced:
+            rounds_without_merge = 0
+        elif gate_rejects > 0:
+            rounds_without_merge += 1
+            if rounds_without_merge == _DEADLOCK_ADVISE_ROUNDS:
+                say("no merge has landed for {} rounds — if this persists, the verifier may "
+                    "only be satisfiable by the whole goal; bundle each source file with its own "
+                    "test, or scope the verifier so a partial merge can pass".format(
+                        rounds_without_merge))
+            if rounds_without_merge >= _DEADLOCK_PAUSE_ROUNDS:
+                detail = ("structural deadlock: {} task-merge(s) rejected by the gate and nothing "
+                          "landed on HEAD for {} rounds — no single task's changes pass the hard "
+                          "verifier(s) alone. A verifier satisfiable only by the WHOLE goal (e.g. a "
+                          "global import/build check), or co-dependent work (a module and its tests) "
+                          "split across tasks, causes this. Make each task independently verifiable "
+                          "(bundle each source file with its own test) or scope the verifier so a "
+                          "partial merge can pass.").format(gate_rejects, rounds_without_merge)
+                store.log("merge_gate_deadlock", goal_id=goal_id,
+                          payload={"rounds": rounds_without_merge})
+                return _finish(store, goal_id, "paused", rnd + 1, verdict, budget,
+                               bypasses, detail, say)
 
         # Stall-based replanning needs an OBJECTIVE progress signal, so it only
         # applies when there are hard verifiers (human-only goals drain their
