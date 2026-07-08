@@ -21,6 +21,7 @@ from typing import Any, List, Optional
 from .provider import Provider, Msg, Completion
 from .tools import Toolbelt, tool_schemas
 from .state import Task
+from .guarded import classify_guarded_action
 
 
 EXECUTOR_SYSTEM = """You are an Executor agent in loophole. Complete ONE task by
@@ -65,6 +66,17 @@ class ExecContext:
             try:
                 self.store.log("agent_step", goal_id=self.goal_id, task_id=self.task_id,
                                payload={"tool": tool, "note": (note or "")[:200]})
+            except Exception:
+                pass
+
+    def guarded(self, command: str, category: str) -> None:
+        """Record a guarded side-effecting action (deploy/release/publish/push/purchase)
+        for the Residual-Risk audit. Fires regardless of tier — the report decides how
+        loudly to surface it."""
+        if self.store is not None and self.goal_id is not None:
+            try:
+                self.store.log("guarded_action", goal_id=self.goal_id, task_id=self.task_id,
+                               payload={"command": (command or "")[:200], "category": category})
             except Exception:
                 pass
 
@@ -120,6 +132,11 @@ class ReActExecutor(Executor):
                     tools_used += 1
                     if ctx is not None:
                         ctx.step(tc.name, str(result)[:80])   # stream to the FORGE
+                        if tc.name == "run_shell":
+                            _cmd = (tc.arguments or {}).get("command", "")
+                            _cat = classify_guarded_action(_cmd)
+                            if _cat:
+                                ctx.guarded(_cmd, _cat)
                     msgs.append(Msg("tool", str(result)[:6000], name=tc.name,
                                     tool_call_id=tc.id))
                 continue
@@ -186,6 +203,9 @@ class CommandExecutor(Executor):
         cmd = self.command_template.replace("{task}", shlex.quote(task.description))
         if ctx is not None:
             ctx.step("external-agent", cmd[:80])
+            _cat = classify_guarded_action(cmd)
+            if _cat:
+                ctx.guarded(cmd, _cat)
         result = belt.run_shell(cmd)
         # TASK.md is orchestrator scaffolding for the agent to READ — not agent output.
         # Remove it after the run so it never counts against the per-task write-allowlist

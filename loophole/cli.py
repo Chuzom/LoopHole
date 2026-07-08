@@ -21,9 +21,9 @@ from .initializer import (CONTRACT_FILENAME, detect_contract, write_starter,
                           list_rubrics as _list_rubrics, load_rubric)
 from .audit import render_audit, render_runs
 from .watch import render_frame, run_watch
-from .loop import Roles, LoopConfig, run_goal
+from .loop import Roles, LoopConfig, run_goal, privilege_preset, HumanUnavailable
 from .provider import make_provider, ProviderError
-from .report import residual_risk_report
+from .report import residual_risk_report, collect_guarded_actions
 from .state import Store
 
 
@@ -514,6 +514,13 @@ def contract_show(path: str) -> None:
                    "Requires running inside a GitHub Actions pull_request job with "
                    "GITHUB_TOKEN set (checks:write, pull-requests:write permissions).")
 @click.option("--db", default=None, help="State DB path.")
+@click.option("--privileges", type=click.Choice(["full", "guarded", "locked"]), default=None,
+              help="How much freedom the swarm gets (asked once at the start of a mission). "
+                   "'full' = trusted + network allowed; 'guarded' (default) = OS-sandboxed, "
+                   "network denied by default, side-effecting actions (push/publish/deploy) "
+                   "ALLOWED but recorded in the Residual-Risk Report; 'locked' = no network, "
+                   "reads confined, every merge routed to a human. Prompted interactively when "
+                   "omitted and a terminal is attached.")
 def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[str],
         human: bool, workspace: str, watch_live: Optional[bool], view: Optional[str],
         emit_json: bool, json_file: Optional[str],
@@ -530,7 +537,7 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
         verify_mutation: Optional[str], verify_mutation_tests_dir: Optional[str],
         verify_rubric: Optional[str], list_rubrics: bool,
         skip_critique: bool, comment: bool,
-        db: Optional[str]) -> None:
+        db: Optional[str], privileges: Optional[str]) -> None:
     """Run a goal until its acceptance contract passes.
 
     Provide a GOAL with flags, or load a contract file with --contract. With no
@@ -609,6 +616,17 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
                                 protected_paths=list(protect),
                                 max_cost_usd=max_cost, max_tokens=max_tokens,
                                 max_rounds=max_rounds)
+    # Privilege tier — chosen ONCE per mission: explicit --privileges wins, else ask once
+    # when a terminal is attached, else keep the contract's default ("guarded").
+    if privileges:
+        contract.privilege_tier = privileges
+    elif sys.stdin.isatty() and sys.stdout.isatty():
+        contract.privilege_tier = _prompt_privilege_tier(contract.privilege_tier)
+    # 'locked' requires human sign-off on completion — inject a HUMAN verifier if the
+    # contract doesn't already have one (reuses the existing checkpoint mechanism).
+    if privilege_preset(contract.privilege_tier)["require_human"] and not contract.human_verifiers:
+        contract.verifiers.append(Verifier(kind=VerifierKind.HUMAN,
+                                           prompt="[locked] approve completion of: " + contract.goal))
     try:
         contract.validate()
     except ContractError as e:
@@ -646,12 +664,15 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
 
     budget = Budget(max_cost_usd=contract.max_cost_usd, max_tokens=contract.max_tokens)
     _csv = lambda s: tuple(x.strip() for x in s.split(",") if x.strip()) if s else ()
+    # Apply the privilege-tier preset. 'locked' force-confines and denies network,
+    # overriding the corresponding flags; 'full'/'guarded' leave the flags as given.
+    _preset = privilege_preset(contract.privilege_tier)
     cfg = LoopConfig(max_parallel=max_parallel, skip_plan_critique=skip_critique,
                      on_human=_human_checkpoint if contract.human_verifiers else None,
                      executor_command=executor_command, executor_name=executor_name,
-                     executor_network=_csv(executor_network),
+                     executor_network=() if _preset["deny_network"] else _csv(executor_network),
                      executor_secrets=_csv(executor_secret),
-                     executor_sandboxed=executor_sandboxed)
+                     executor_sandboxed=executor_sandboxed or _preset["force_sandbox"])
 
     # The default live view is the append-only 'stream' — one clean milestone line
     # per real event, readable in any terminal, when piped, in CI, or in Claude
@@ -676,7 +697,8 @@ def run(goal: Optional[str], contract_path: Optional[str], verify_cmd: Optional[
     click.echo()
     click.echo(residual_risk_report(
         contract, outcome.verdict, outcome.status, outcome.rounds,
-        outcome.budget.summary(), outcome.verifier_bypasses, detail=outcome.detail))
+        outcome.budget.summary(), outcome.verifier_bypasses, detail=outcome.detail,
+        guarded_actions=collect_guarded_actions(store, goal_id)))
     from .scorecard import run_scorecard, render_scorecard
     click.echo()
     click.echo(render_scorecard(run_scorecard(store, goal_id),
@@ -743,7 +765,27 @@ def _post_pr_feedback(gh_ctx: dict, result: dict, say: Callable[[str], None]) ->
 
 
 def _human_checkpoint(prompt: str) -> bool:
-    return click.confirm(click.style("[human checkpoint] ", fg="yellow") + prompt, default=True)
+    try:
+        return click.confirm(click.style("[human checkpoint] ", fg="yellow") + prompt, default=True)
+    except (click.Abort, EOFError):
+        # No human at the keyboard (EOF on a non-interactive stdin) — signal the loop to
+        # PAUSE fail-closed rather than aborting the whole run.
+        raise HumanUnavailable(prompt)
+
+
+def _prompt_privilege_tier(default: str) -> str:
+    """Ask once, at mission start, how much freedom the swarm gets."""
+    click.echo(click.style("How much freedom does loophole get for this mission?", fg="cyan"))
+    click.echo("  " + click.style("full", fg="green")
+               + "     — trusted executor, network allowed. Do everything.")
+    click.echo("  " + click.style("guarded", fg="yellow")
+               + "  — OS-sandboxed, network denied by default. Side-effecting actions "
+                 "(push/publish/deploy) are allowed but recorded in the report. [default]")
+    click.echo("  " + click.style("locked", fg="red")
+               + "   — no network, reads confined, every merge routed to you.")
+    return click.prompt("privileges",
+                        type=click.Choice(["full", "guarded", "locked"]),
+                        default=default, show_default=True)
 
 
 @main.command()

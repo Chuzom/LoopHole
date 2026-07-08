@@ -10,7 +10,7 @@
 
 [![ci](https://github.com/Chuzom/loophole/actions/workflows/ci.yml/badge.svg)](https://github.com/Chuzom/loophole/actions/workflows/ci.yml)
 [![pypi](https://img.shields.io/pypi/v/loophole-agents?color=3fb950)](https://pypi.org/project/loophole-agents/)
-[![tests](https://img.shields.io/badge/tests-353%20total-3fb950)](tests/)
+[![tests](https://img.shields.io/badge/tests-388%20total-3fb950)](tests/)
 [![coverage](https://img.shields.io/badge/coverage-83%25%20%28gated%20%E2%89%A575%25%29-3fb950)](.github/workflows/sandbox.yml)
 [![gauntlet](https://img.shields.io/badge/reward--hacking-5%2F5%20caught-3fb950)](gauntlet/README.md)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab)](#)
@@ -319,6 +319,44 @@ the `loophole.executors` entry point, and `loophole run --executor <name>` picks
 (it appears in `loophole executor list`). The sandbox → write-allowlist → merge gate →
 verifier boundary is unchanged; no adapter can grant "done." Copy-paste template:
 **[`examples/adapter_package/`](examples/adapter_package/)**.
+
+## Use it from your coding agent — `/loophole`
+
+Call loophole from inside **Claude Code, Codex, or any agent harness** and watch it work.
+Those harnesses capture stdout, so loophole's live terminal view doesn't animate inside them;
+instead the agent drives loophole's MCP tools (`loophole_run` → poll `loophole_status`) and
+re-prints a clean markdown snapshot — goal, per-agent task table, milestones, verdict — until
+it reaches ✅ VERIFIED DONE.
+
+```bash
+pip install loophole-agents
+claude mcp add loophole -- loophole mcp     # Claude Code (or add loophole mcp to Codex's MCP config)
+```
+
+Drop in the ready-made `/loophole` command (templates in
+**[`examples/agents/`](examples/agents/)**), then:
+
+```
+/loophole create add.py with add(a,b) || python3 -c "from add import add; assert add(2,3)==5"
+```
+
+Full setup, a no-MCP CLI recipe, and the Codex variant: **[agent integration
+guide](examples/agent-integration.md)**.
+
+## Privileges — choose once how much freedom the swarm gets
+
+At the start of a mission loophole asks (or you pass `--privileges`) how far it may go:
+
+| Tier | Sandbox / network | Side-effecting actions (push · publish · deploy · buy) |
+|---|---|---|
+| `full` | trusted, network allowed | allowed |
+| `guarded` *(default)* | OS-sandboxed, network denied by default | **allowed but recorded** in the Residual-Risk Report |
+| `locked` | no network, reads confined | completion routed to a human sign-off |
+
+`guarded` equals loophole's long-standing posture, so it's non-breaking. Guarded actions the
+swarm runs (e.g. `git push`, `npm publish`, `terraform apply`) are detected and listed under
+**Guarded actions (audit)** in the report and in `loophole audit <id>` — you always see what
+actually happened.
 
 ## For teams — loophole as a CI acceptance gate
 

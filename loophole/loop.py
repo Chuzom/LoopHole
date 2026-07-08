@@ -53,6 +53,12 @@ class Roles:
             self.critic = self.cheap
 
 
+class HumanUnavailable(Exception):
+    """Raised by an ``on_human`` callback when it cannot reach a human (e.g. EOF on a
+    non-interactive stdin during a 'locked' mission). The loop treats it as a
+    fail-closed PAUSE — never a silent completion and never a hard rejection."""
+
+
 @dataclass
 class LoopConfig:
     max_parallel: int = 4
@@ -73,6 +79,21 @@ class LoopConfig:
     executor_sandboxed: bool = False        # force-sandbox a trusted framework adapter
                                             # (opt-out; a trusted adapter runs unsandboxed
                                             # by default so it can use its own creds)
+
+
+def privilege_preset(tier: str) -> dict:
+    """The confinement a privilege tier imposes, chosen once at mission start.
+
+    Only ``locked`` forces anything here: full OS sandbox, network denied, and a
+    human sign-off on completion. ``full`` and ``guarded`` (the default) leave the
+    sandbox/network posture to the explicit flags — they differ only in audit
+    emphasis (see report.py: guarded/locked surface guarded actions prominently,
+    full does not). Returned keys: ``force_sandbox``, ``deny_network``,
+    ``require_human`` — all False for full/guarded, so it is non-breaking.
+    """
+    if tier == "locked":
+        return {"force_sandbox": True, "deny_network": True, "require_human": True}
+    return {"force_sandbox": False, "deny_network": False, "require_human": False}
 
 
 @dataclass
@@ -512,7 +533,14 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
                     store.log("soft_fail_closed", goal_id=goal_id, payload={"reason": reason})
                     return _finish(store, goal_id, "paused", rnd + 1, verdict, budget,
                                    bypasses, reason, say)
-                if not cfg.on_human(contract.goal + "\n\n" + reason):
+                try:
+                    _soft_ok = cfg.on_human(contract.goal + "\n\n" + reason)
+                except HumanUnavailable:
+                    say("human unavailable for soft-judge escalation — pausing (fail-closed)")
+                    store.log("soft_fail_closed", goal_id=goal_id, payload={"reason": reason})
+                    return _finish(store, goal_id, "paused", rnd + 1, verdict, budget,
+                                   bypasses, reason, say)
+                if not _soft_ok:
                     feedback = "human rejected indeterminate soft check"
                     verdict = None
                     for t in store.tasks_for_goal(goal_id):
@@ -520,9 +548,25 @@ def run_goal(store: Store, goal_id: str, contract: GoalContract, roles: Roles,
                             store.set_task_status(t.id, "abandoned", goal_id)
                     continue
                 # approved → fall through to normal completion
-            if contract.human_verifiers and cfg.on_human:
-                approved = all(cfg.on_human(hv.prompt or contract.goal)
-                               for hv in contract.human_verifiers)
+            if contract.human_verifiers:
+                # A human checkpoint must not be silently auto-approved. Running headless
+                # (no callback — e.g. a non-interactive 'locked' mission), PAUSE fail-closed
+                # rather than declare done, mirroring the soft-judge escalation above.
+                if cfg.on_human is None:
+                    reason = "human sign-off required but no human available — pausing (fail-closed)"
+                    say(reason)
+                    store.log("human_fail_closed", goal_id=goal_id, payload={"reason": reason})
+                    return _finish(store, goal_id, "paused", rnd + 1, verdict, budget,
+                                   bypasses, reason, say)
+                try:
+                    approved = all(cfg.on_human(hv.prompt or contract.goal)
+                                   for hv in contract.human_verifiers)
+                except HumanUnavailable:
+                    reason = "human sign-off required but no human available — pausing (fail-closed)"
+                    say(reason)
+                    store.log("human_fail_closed", goal_id=goal_id, payload={"reason": reason})
+                    return _finish(store, goal_id, "paused", rnd + 1, verdict, budget,
+                                   bypasses, reason, say)
                 if approved:
                     return _finish(store, goal_id, "done", rnd + 1, verdict, budget,
                                    bypasses, "all verifiers passed", say)
