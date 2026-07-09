@@ -11,6 +11,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Hard cap so a hung step (e.g. apt-get update wedging on a slow third-party
+    # repo, or a deadlocked test) fails in minutes instead of churning to the 6h
+    # job cap and getting cancelled. Normal run is < 2 min.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -21,7 +25,19 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install bubblewrap (Linux OS sandbox)
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+        timeout-minutes: 5
+        # Third-party apt lists (packages.microsoft.com, azure-cli) intermittently
+        # hang `apt-get update` on GH runners with no timeout — we don't need them,
+        # so drop them first, then retry a couple of times on transient failure.
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/azure-cli.list \
+                     /etc/apt/sources.list.d/*azure* 2>/dev/null || true
+          for i in 1 2 3; do
+            sudo apt-get update -o Acquire::Retries=3 && break
+            echo "apt-get update failed (attempt $i), retrying..."; sleep 5
+          done
+          sudo apt-get install -y bubblewrap
       - name: Allow unprivileged user namespaces (bwrap on Ubuntu 24.04+)
         # ubuntu-latest restricts unprivileged userns via AppArmor, which breaks
         # bwrap --unshare; relax it for CI so sandboxed tests run.
