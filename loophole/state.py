@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE TABLE IF NOT EXISTS verify_cache (
-    key      TEXT PRIMARY KEY,        -- tree_sha | base_commit | baseline
+    key      TEXT PRIMARY KEY,        -- tree_sha | base_commit | baseline | verifier_fingerprint
     payload  TEXT NOT NULL,           -- JSON: deterministic verify result
     ts       REAL NOT NULL
 );
