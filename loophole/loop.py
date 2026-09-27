@@ -17,6 +17,7 @@ cap (council critique E) are the right model here, not unbounded async fanout.
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
 import json
 import os
 import shutil
@@ -164,6 +165,29 @@ def _deserialize_hard(payload: str):
             list(d.get("violations", [])))
 
 
+def _verifier_cache_fingerprint(contract: GoalContract) -> str:
+    """Stable hash of everything the deterministic (hard) verify gate depends on
+    besides the tree/base_commit/baseline_total.
+
+    Bug fix (found 2026-09-26 by rsi-engine): the verify cache was keyed only on
+    (tree, base_commit, baseline_total) — NOT on the verifier itself. Two goals
+    verifying an identical tree with different ``--verify`` commands (or
+    different environment/allow_network/expected_test_delta/protected_paths)
+    could reuse each other's cached verdict, since hard_pass/violations for the
+    cached entry are computed from contract.hard_verifiers + all_protected_paths.
+    Hashing the full definition of every hard verifier (kind/command/environment/
+    allow_network/expected_test_delta/trusted_inputs/protected_paths/params via
+    Verifier.to_dict()) plus contract.all_protected_paths makes the key unique to
+    the verifier that actually produced the cached result. Old cache rows simply
+    stop matching (no migration needed).
+    """
+    payload = json.dumps({
+        "hard_verifiers": [v.to_dict() for v in contract.hard_verifiers],
+        "all_protected_paths": contract.all_protected_paths,
+    }, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 def verify_candidate(contract: GoalContract, integ: Integration,
                      baseline_total: Optional[float],
                      base_commit: Optional[str] = None,
@@ -207,8 +231,14 @@ def verify_candidate(contract: GoalContract, integ: Integration,
                 integ._hard_cache = mem
             except Exception:
                 mem = None
-        mkey = (tree, base_commit, baseline_total)
-        skey = "{}|{}|{}".format(tree, base_commit, baseline_total) if tree else None
+        # ARCH-2 cache key MUST include the verifier: a cached hard_pass/violations
+        # tuple is only valid for the exact verifier definition that produced it
+        # (command, environment, allow_network, expected_test_delta, protected
+        # paths, ...). Without this, changing a verifier on an unchanged tree
+        # reuses a different verifier's stale verdict (2026-09-26, rsi-engine).
+        vfp = _verifier_cache_fingerprint(contract)
+        mkey = (tree, base_commit, baseline_total, vfp)
+        skey = "{}|{}|{}|{}".format(tree, base_commit, baseline_total, vfp) if tree else None
 
         cached = None
         if tree:
