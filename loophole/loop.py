@@ -69,7 +69,10 @@ class LoopConfig:
     max_attempts_per_task: int = 3
     stall_rounds: int = 3
     degenerate_repeats: int = 3
-    exec_max_steps: int = 12
+    # Built-in executor step budget per attempt. 12 suits small tasks; a local model editing an
+    # unfamiliar repo can spend all 12 reading (rsi-engine trial, 2026-09-27: found the right
+    # file, read it 10 times, never edited). Same env-override pattern as the shell timeout.
+    exec_max_steps: int = field(default_factory=lambda: int(os.environ.get("LOOPHOLE_EXEC_MAX_STEPS", "12")))
     shell_timeout: int = field(default_factory=lambda: int(os.environ.get("LOOPHOLE_SHELL_TIMEOUT_S", "120")))
     skip_plan_critique: bool = False
     allow_no_git: bool = False     # opt-in to shared-workspace mode when not a git repo
